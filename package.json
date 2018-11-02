@@ -1,0 +1,22 @@
+{
+  "name": "bicycle-geometry",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "server": "webpack-dev-server",
+    "build": "webpack",
+    "buildw": "webpack --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {},
+  "devDependencies": {
+    "fantasy-land": "^3.5.0",
+    "ramda": "^0.25.0",
+    "webpack": "^4.23.1",
+    "webpack-cli": "^3.1.2",
+    "webpack-dev-server": "^3.1.10"
+  }
+}
