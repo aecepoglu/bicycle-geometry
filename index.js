@@ -2,12 +2,16 @@ import {
 	chain,
 	compose,
 	curry,
+	curryN,
 	divide,
 	head,
-	map
+	map,
+	path,
+	prop
 } from "ramda";
 
 import IO from "./types/io";
+import Emitter from "./types/emitter";
 
 
 // point :: (Number, Number) -> Point
@@ -15,6 +19,7 @@ const point = (x, y) => ({
 	x: x,
 	y: y
 });
+
 
 // radians :: Number -> Angle
 const radians = divide(2 * Math.PI);
@@ -27,33 +32,49 @@ const tube = (name, length, P, angle) => ({
 	angle: angle
 });
 
-// print :: a -> IO a
-const print = x => new IO(() => {
-	console.log("PRINT " + x);
+const print = curry((prefix, x) => {
+	console.log(prefix + " " + x);
 	return x;
 });
 
-// print :: String -> IO List DOM
-const elements = sel => IO.of(document.querySelectorAll(sel));
+// pprintIO :: String -> a -> IO a
+const pprintIO = prefix => (x => new IO(() => print(prefix, x)));
 
-// print :: String -> IO DOM
-const element = compose(map(head), elements);
+// pprintIO :: a -> IO a
+const printIO = pprintIO("PRINT");
 
-// addListener :: String -> String -> f Event
-const addListener = curry((sel, ev, f) => {
-	document.querySelector(sel).addEventListener(ev, f);
+// $ :: String -> IO DOM
+const $ = sel => IO.of(document.querySelector(sel));
+
+const setHtml = curry((path, html) => { //TODO this should return an IO
+	document.querySelector(path).innerHTML = html;
 });
 
-//addListener("#forkLen") ("change") (x => {
-//	XXXX.pipe([
-//		XXXX.parseFloat,
-//		XXXX.maybeToEither("Not a number"),
-//		XXXX.either
-//			(console.warn)
-//			(x => document.querySelector("#forkLenOut").innerHTML = x)
-//	]) (x.target.value)
-//});
+// listevEvents :: IO Textbox -> Emitter ChangeEvent
+const listenEvents = (io, ev) => compose(
+	//// EventEmitter ChangeEvent
+	map(Emitter.fromResultOf),
+	//// IO f(cb)
+	chain(pprintIO("3")),
+	map(f => curryN(2, f)(ev)), //TODO curry this too
+	//// IO f(ev, cb)
+	chain(pprintIO("2")),
+	map(prop("addEventListener")),
+	// IO Textbox
+	chain(pprintIO("1")),
+	$,
+)(io, ev);
 
+console.log($("#forkLen").performUnsafeIO());
 console.log(
-	element("#forkLen").performUnsafeIO()
+	listenEvents("#forkLen", "change")
+		.performUnsafeIO()
+		.subscribe(compose(
+			setHtml("#forkLenOut"),
+			print("float"),
+			parseFloat,
+			print("string"),
+			path(["target", "value"]),
+			print("event")
+		))
 );
