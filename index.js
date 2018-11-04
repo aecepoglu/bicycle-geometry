@@ -11,7 +11,15 @@ import {
 } from "ramda";
 
 import IO from "./types/io";
+import {Just, Nothing} from "sanctuary-maybe";
+import {Left, Right} from "sanctuary-either";
 import Emitter from "./types/emitter";
+
+const {
+	maybeToEither
+}  = require("./utils").factory({
+	Just, Nothing, Right, Left
+});
 
 
 // point :: (Number, Number) -> Point
@@ -19,7 +27,6 @@ const point = (x, y) => ({
 	x: x,
 	y: y
 });
-
 
 // radians :: Number -> Angle
 const radians = divide(2 * Math.PI);
@@ -32,13 +39,14 @@ const tube = (name, length, P, angle) => ({
 	angle: angle
 });
 
+// print :: String -> a -> a
 const print = curry((prefix, x) => {
-	console.log(prefix + " " + x);
+	console.log(prefix, x);
 	return x;
 });
 
 // pprintIO :: String -> a -> IO a
-const pprintIO = prefix => (x => new IO(() => print(prefix, x)));
+const pprintIO = map(IO.of, print);
 
 // pprintIO :: a -> IO a
 const printIO = pprintIO("PRINT");
@@ -46,9 +54,16 @@ const printIO = pprintIO("PRINT");
 // $ :: String -> IO DOM
 const $ = sel => IO.of(document.querySelector(sel));
 
-const setHtml = curry((path, html) => { //TODO this should return an IO
-	document.querySelector(path).innerHTML = html;
+// setHtml :: String -> String -> IO
+const setHtml = curry((sel, html) => { //TODO this should return an IO
+	return map(
+		x => x.innerHTML = html,
+		$(sel)
+	);
 });
+
+// parseFloatSafe :: String -> Maybe Float
+const parseFloatSafe = map(x => Number.isNaN(x) ? Nothing : Just(x), parseFloat);
 
 // listevEvents :: IO Textbox -> Emitter ChangeEvent
 const listenEvents = (io, ev) => compose(
@@ -65,16 +80,17 @@ const listenEvents = (io, ev) => compose(
 	$,
 )(io, ev);
 
-console.log($("#forkLen").performUnsafeIO());
-console.log(
-	listenEvents("#forkLen", "change")
-		.performUnsafeIO()
-		.subscribe(compose(
-			setHtml("#forkLenOut"),
-			print("float"),
-			parseFloat,
-			print("string"),
+console.log(setHtml("#forkLenOut")("hello"));
+listenEvents("#forkLen", "change")
+	.performUnsafeIO()
+	.subscribe(e => {
+		compose(
+			print("3"),
+			chain(setHtml("#forkLenOut")),
+			print("2"),
+			maybeToEither("not a number"),
+			print("1"),
+			parseFloatSafe,
 			path(["target", "value"]),
-			print("event")
-		))
-);
+		)(e).performUnsafeIO();
+	});
