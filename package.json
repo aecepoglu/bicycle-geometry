@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {},
   "devDependencies": {
+    "crocks": "^0.11.1",
     "fantasy-land": "^3.5.0",
     "ramda": "^0.25.0",
     "sanctuary-either": "^1.0.0",
