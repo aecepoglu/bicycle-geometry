@@ -7,16 +7,26 @@ body {
 	background-color: #555;
 	color: white;
 }
+
+#graph {
+	width: 300px;
+	height: 300px;
+	border: 1px solid;
+	float: left;
+}
+
+#inputs {
+	width: 300px;
+	height: 300px;
+	border: 1px solid;
+	float: right;
+}
 		</style>
 	</head>
 
 	<body>
-		<div id="forkIn">
-			<input type="number"/>
-			<span class="err"></span>
-		</div>
-
-		<p>fork length <span id="forkLenOut"></span></p>
+		<div id="graph"></div>
+		<div id="inputs"></div>
 
 		<script type="text/javascript" src="/code.js"></script>
 	</body>
