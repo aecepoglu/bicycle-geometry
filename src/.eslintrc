@@ -1,0 +1,10 @@
+{
+	"parserOptions": {
+		"sourceType": "module"
+	},
+	"rules": {
+		"comma-dangle": ["error", "always-multiline"],
+		"quotes": ["error", "double"],
+		"no-var": "error"
+	}
+}
