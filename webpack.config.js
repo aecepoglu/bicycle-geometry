@@ -12,14 +12,24 @@ module.exports = {
 	},
 
 	module: {
-		rules: [
-			{
-				test: /\.js/,
-				use: [
-					{ loader: "eslint-loader" },
-				],
-			}
-		]
+		rules: [{
+			test: /\.js$/,
+			use: [
+				{ loader: "eslint-loader" },
+			],
+		}, {
+			test: /\.css$/,
+			use: [
+				"style-loader",
+				{
+					loader: "css-loader",
+					options: {
+						modules: true,
+						localIdentName: "[sha1:hash:hex:4]",
+					},
+				},
+			],
+		}]
 	},
 
 	plugins: [

@@ -5,27 +5,26 @@ import h from "virtual-dom/h"
 import vdomPatch from "virtual-dom/patch"
 // Algebraic types
 import IO from "crocks/IO"
+import List from "crocks/List"
 import Maybe from "crocks/Maybe"
-import Pair from "crocks/Pair"
+import Reader from "crocks/Reader"
 // Helpers
-import applyTo from "crocks/combinators/applyTo"
 import assign from "crocks/helpers/assign"
-import bimap from "crocks/pointfree/bimap"
-import branch from "crocks/Pair/branch"
 import chain from "crocks/pointfree/chain"
 import compose from "crocks/helpers/compose"
-import constant from "crocks/combinators/constant"
+import concat from "crocks/pointfree/concat"
 import curry from "crocks/helpers/curry"
 import identity from "crocks/combinators/identity"
-import either from "crocks/pointfree/either"
+import fanout from "crocks/helpers/fanout"
 import flip from "crocks/combinators/flip"
 import head from "crocks/pointfree/head"
 import liftA2 from "crocks/helpers/liftA2"
+import listToArray from "crocks/List/listToArray"
 import map from "crocks/pointfree/map"
 import mapProps from "crocks/helpers/mapProps"
-import maybeToEither from "crocks/Either/maybeToEither"
 import merge from "crocks/pointfree/merge"
 import omit from "crocks/helpers/omit"
+import prop from "crocks/Maybe/prop"
 import path from "crocks/Maybe/propPath"
 import pick from "crocks/helpers/pick"
 import reduce from "crocks/pointfree/reduce"
@@ -33,15 +32,20 @@ import run from "crocks/pointfree/run"
 import runWith from "crocks/pointfree/runWith"
 import safe from "crocks/Maybe/safe"
 import setPath from "crocks/helpers/setPath"
-import snd from "crocks/Pair/snd"
+import sequence from "crocks/pointfree/sequence"
+import tail from "crocks/pointfree/tail"
 import tap from "crocks/helpers/tap"
 import withDefault from "crocks/pointfree/option"
 
 import SafeModel from "./model"
+import rootStyle from "./style/root.css"
+import inputStyle from "./style/input.css"
 
 /*
  * Helpers
  */
+
+const ALT_COLOR = "grey"
 
 // $ :: String -> IO DOM
 const $ = sel => IO.of(document.querySelector(sel))
@@ -53,10 +57,7 @@ const replaceDomWith = curry((sel, dom) => map(
 ))
 
 // domPatch :: String -> DOMNode -> IO Function
-const domPatch = sel => dom => $(sel).map(t => {
-	console.log("permforming IO domPatch")
-	return vdomPatch(t, dom)
-})
+const domPatch = sel => dom => $(sel).map(t => vdomPatch(t, dom))
 
 // domDiff :: VTree -> VTree -> Diff
 const domDiff = curry(vdomDiff)
@@ -80,8 +81,6 @@ const svg = (a, b, c) => h(
 const add = curry((a, b) => a + b)
 // multiply :: Number -> Number -> Number
 const multiply = curry((a, b) => a * b)
-// divideBy :: Number -> Number -> Number
-const divideBy = curry((b, a) => a / b)
 
 const gt = b => a => a > b
 const lt = b => a => a < b
@@ -94,26 +93,9 @@ const toDegrees = multiply(180 / Math.PI)
 
 const toFixed = p => x => Math.round(x * p) / p
 
-// toUpper :: String -> String
-const toUpper = x => x.toUpperCase()
-
 // TODO use crocks/Maybe/safe instead
 // parseFloatSafe :: String -> Maybe Float
 const parseFloatSafe = map(x => Number.isNaN(x) ? Maybe.Nothing() : Maybe.Just(x), parseFloat)
-
-// limitedMemoize :: (* -> a) -> (* -> a)
-const limitedMemoize = f => {
-	let prevKey = undefined
-	let prevResp = undefined
-	return (...args) => {
-		let key = JSON.stringify(args)
-		if (key !== prevKey) {
-			prevKey = key
-			prevResp = f(...args)
-		}
-		return prevResp
-	}
-}
 
 // join :: String -> List String -> String
 const join = t => l => l.join(t)
@@ -129,13 +111,13 @@ const subPoints = (a, b) => point(a.x - b.x, a.y - b.y)
 // avector :: (Number, Angle) -> Point
 const avector = (l, a) => point(l * Math.cos(a), l * Math.sin(a))
 
-const vectorLen = p => Math.sqrt(p.x*p.x + p.y*p.y)
-
 // print :: String -> a -> a
 const print = curry((prefix, x) => {
 	console.log(prefix, x)
 	return x
 })
+
+const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 
 /*
  *
@@ -148,10 +130,7 @@ let myModel = new SafeModel()
 // getModel :: () -> Model
 const getModel = () => myModel.get()
 // setModel :: Model -> IO Model
-const setModel = x => new IO(() => {
-	console.log("performing IO setModel")
-	return myModel.set(x)
-})
+const setModel = x => new IO(() => myModel.set(x))
 
 /*
  *
@@ -161,247 +140,365 @@ const setModel = x => new IO(() => {
 
 const round = toFixed(10)
 
-// changeTube :: [String] -> Model -> a -> Model
-const changeTube = curry((path, model, val) => {
+// changeModel :: [String] -> Model -> a -> Model
+const changeModel = curry((path, model, val) => {
 	return setPath(path, val, model)
 })
 
-const svgd = op => (x, y) => "" + op + round(x) + " " + round(y)
-const svgl = svgd("l")
-const svgM = svgd("M")
-const svgv = op => (l, a) => svgd(op)(l * Math.cos(a), l * Math.sin(a))
-const svgline = svgv("l")
-const svgdp = op => p => svgd(op)(p.x, p.y)
+const svgdp = op => p => `${op}${round(p.x)} ${round(p.y)}`
 
-// svgtube :: (Number, Number, Angle) -> String
-const svgtube = (l, t, a) => spaced([
-	svgline(t, Math.PI/2 + a),
-	svgline(l, a),
-	svgline(2 * t, -Math.PI/2 + a),
-	svgline(l, Math.PI + a),
-	svgline(t, Math.PI/2 + a),
-])
+const svgpath = curry((style, d) => svg("path", ({
+	d: d,
+	"stroke-dasharray": style == "dashed" ? "3 5" : undefined,
+	//deneme: style,
+})))
 
-const svgtubebetween = (p0, p1, t) => {
-	let dx = p1.x - p0.x
-	let dy = p1.y - p0.y
-	return svgtube(Math.sqrt(dy * dy + dx * dx), t, Math.atan2(dy, dx))
+// buildPolygonPath :: LineDef -> String
+const buildPolygonPath = compose(
+	merge(liftA2(svgpath)),
+	map(compose(
+		map(spaced),
+		map(listToArray),
+		merge(flip(concat))
+	)),
+	map(fanout(
+		compose(
+			map(List),
+			map(svgdp("M")),
+			chain(head)
+		),
+		compose(
+			map(map(svgdp("L"))),
+			chain(tail)
+		)
+	)),
+	//TODO improvement: assert style is an acceptable style
+	fanout(prop("style"), prop("list"))
+)
+
+// svgTrapezoid :: (Point, Point, Number, Number || undefined) -> svg.Path
+const svgTrapezoid = (p0, p1, w1, w2) => {
+	let v1 = avector(w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
+	let v2 = avector(w2 || w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
+
+	return withDefault(undefined, buildPolygonPath({
+		style: "straight",
+		list: List([
+			p0, 
+			addPoints(p0, v1),
+			addPoints(p1, v2),
+			subPoints(p1, v2),
+			subPoints(p0, v1),
+		]),
+	}))
 }
 
-const svgpath = dl => svg("path", {d: spaced(dl)})
+
+// (Apply Model -> Maybe List LineDef) -> Maybe Svg.g
+const drawGuide = model => compose(
+	map(x => svg("g", {
+		stroke: "red",
+		fill: "none",
+	}, x)),
+	map(x => x.toArray()),
+	sequence(Maybe.of),
+	//List Maybe Svg.Path
+	map(chain(buildPolygonPath)),
+	sequence(List.of),
+	//Maybe List LineDef
+	runWith(model)
+)
+
+// lineDef :: String -> List Point -> LineDef
+const lineDef = curry((style, list) => ({style: style, list: list}))
+
+// Guide :: Reader Model -> Maybe List LineDef
+// lineThroughPoints :: [String] -> Guide
+const lineThroughPoints = compose(
+	map(map(map(lineDef("straight")))),
+	//Reader Model -> Maybe List List Point
+	map(map(List.of)),
+	//Reader Model -> Maybe List Point
+	map(sequence(Maybe.of)),
+	//Reader Model -> List Maybe Point
+	sequence(Reader.of),
+	//List Reader Model -> Maybe Point
+	map(Reader),
+	//List Model -> Maybe Point
+	map(prop),
+	//List String
+	List
+	//[String]
+)
+
+// Creates a guide from point P1 to point P2 (where P1, P2 are Points named `n1` and `n2` in Model
+//  such that the line is parallel to the `k` axis
+//
+// lineFromPointToReferenceLine :: String a, String b => (a, b, a) -> Guide
+const lineFromPointToReferenceLine = (n1, k, n2) => compose(
+	//Reader Model -> Maybe List (LineDef)
+	map(map(({0: pa, 1: pb}) => List([
+		lineDef("straight", List([
+			pa,
+			assign({ [k]: pa[k] }, pb),
+		])),
+		lineDef("dashed", List([
+			pb,
+			assign({ [k]: pa[k] - 0.5 * (pb[k] - pa[k]) }, pb),
+		])),
+	]))),
+	map(map(x => x.toArray())),
+	//Reader Model -> Maybe (List Point)
+	map(sequence(Maybe.of)),
+	//Reader Model -> List (Maybe Point)
+	sequence(Reader.of),
+	//List Reader (Model -> Maybe Point)
+	map(Reader),
+	//TODO validate using (Point.isPoint :: a -> Maybe Point)
+	//List (Model -> Maybe Point)
+	map(prop)
+	//List String String
+)(
+	List([n1, n2])
+)
 
 // render :: Model -> VTree
 const createBicycleSvg = compose(
 	model => svg("svg", {
-	
 		style: {
-			stroke: "grey",
-			border: "1px solid grey",
+			fill: model.fillColor,
+			border: `1px solid ${ALT_COLOR}`,
+			//display: "none",
 		},
 		viewBox: "0 0 700 550",
 	}, [
-		svg("circle", {
-			cx: model.pan.x,
-			cy: model.pan.y,
-			r: 4,
-			fill: "grey",
-		}),
-		svgpath([ //top tube
-			svgdp("M")(model.topTubeStart),
-			svgtube(model.topTubeLen, model.tubeThickness, model.topTubeAngle),
-		]),
-		svgpath([ //bottom tube
-			svgdp("M")(model.bb),
-			svgtubebetween(model.bb, model.bottomTubeEnd, model.tubeThickness),
-		]),
-		svgpath([ //head tube
-			svgdp("M")(model.headTubeStart),
-			svgtube(model.headTubeLen, model.tubeThickness, model.headTubeAngle),
-		]),
-		svgpath([ //seat tube
-			svgdp("M")(model.bb),
-			svgtube(model.seatTubeLen + model.topTubeOffset, model.tubeThickness, model.seatTubeAngle),
-		]),
-		svgpath([ //chainstay
-			svgdp("M")(model.bb),
-			svgtubebetween(model.bb, model.rearHub, model.tubeThickness / 2),
-		]),
-		svgpath([ //chainstay
-			svgdp("M")(model.rearHub),
-			svgtubebetween(model.rearHub, model.topTubeEnd, model.tubeThickness / 2),
-		]),
+		// top tube
+		svgTrapezoid(model.topTubeEnd, model.topTubeStart, model.thickness),
+		// bottom tube
+		svgTrapezoid(model.bb, model.bottomTubeStart, model.thickness),
+		// seat tube
+		svgTrapezoid(model.bb, model.seatTubeEnd, model.thickness),
+		// chainstay
+		svgTrapezoid(model.bb, model.rearHub, 0.7 * model.thickness, 0.3 * model.thickness),
+		// head tube
+		svgTrapezoid(model.headTubeStart, model.headTubeEnd, 1.2 * model.thickness),
+		// seat stay
+		svgTrapezoid(model.rearHub, model.topTubeEnd, 0.5 * model.thickness, 0.8 * model.thickness),
 		svg("circle", { //bottom bracket
 			cx: model.bb.x,
 			cy: model.bb.y,
-			r: model.tubeThickness,
+			r: model.thickness * 1.2,
 		}),
 		svg("circle", {
 			cx: model.frontHub.x,
 			cy: model.frontHub.y,
 			r: 2,
-			fill: "yellow",
+			fill: ALT_COLOR,
 		}),
 		svg("circle", {
 			cx: model.rearHub.x,
 			cy: model.rearHub.y,
 			r: 2,
-			fill: "yellow",
+			fill: ALT_COLOR,
 		}),
-		svgpath([ //fork
-			svgdp("M")(model.frontHub),
-			svgdp("Q ")(model.headTubeProjection),
-			svgdp(" ")(model.headTubeStart),
-		]),
+		svg("path", {
+			d: spaced([ //fork
+				svgdp("M")(model.frontHub),
+				svgdp("Q ")(model.headTubeProjection),
+				svgdp(" ")(model.headTubeStart),
+			]),
+			stroke: model.fillColor,
+			fill: "none",
+			"stroke-width": "2",
+			"stroke-dasharray": "5, 3",
+		}),
 		svg("circle", {
 			cx: model.headTubeProjection.x,
 			cy: model.headTubeProjection.y,
-			r: 2,
+			fill: "none",
 		}),
 		svg("circle", {
 			cx: model.topTubeStart.x,
 			cy: model.topTubeStart.y,
 			r: 1,
-			fill: "grey",
+			fill: ALT_COLOR,
 		}),
 		svg("circle", {
-			cx: model.bottomTubeEnd.x,
-			cy: model.bottomTubeEnd.y,
+			cx: model.bottomTubeStart.x,
+			cy: model.bottomTubeStart.y,
 			r: 1,
-			fill: "grey",
+			fill: ALT_COLOR,
 		}),
 		svg("circle", {
 			cx: model.topTubeEnd.x,
 			cy: model.topTubeEnd.y,
 			r: 1,
-			fill: "grey",
+			fill: ALT_COLOR,
 		}),
+		svg("circle", {
+			cx: model.pan.x,
+			cy: model.pan.y,
+			r: 4,
+			fill: ALT_COLOR,
+		}),
+		withDefault(undefined,
+			drawGuide(model)(model.guide)
+		),
 	]),
-	print(undefined),
 	model => {
-		let panX = add(model.pan.x)
-		let panY = add(model.pan.y)
 		let zoom = multiply(model.zoom)
-		let panzoomX = compose(round, panX, zoom)
-		let panzoomY = compose(round, panY, zoom)
-		let panzoomp = {x: panzoomX, y: panzoomY}
-		let zoomp = {x: zoom, y: zoom}
-		let panp = {x: panX, y: panY}
+		let panzoom = {
+			x: compose(round, add(model.pan.x), zoom),
+			y: compose(round, add(model.pan.y), zoom),
+		}
 
 		return mapProps({
-			//tubeThickness: zoom,
-			frontHub: panzoomp,
-			rearHub: panzoomp,
-			forkLen: zoom,
-			headTubeLen: zoom,
-			topTubeLen: zoom,
-			seatTubeLen: zoom,
-			topTubeOffset: zoom,
-			headTubeProjection: panzoomp,
-			headTubeStart: panzoomp,
-			headTubeEnd: panzoomp,
-			topTubeStart: panzoomp,
-			bottomTubeEnd: panzoomp,
-			topTubeEnd: panzoomp,
-			bb: panzoomp,
+			thickness: zoom,
+			pan: panzoom,
+			frontHub: panzoom,
+			rearHub: panzoom,
+			headTubeProjection: panzoom,
+			headTubeStart: panzoom,
+			headTubeEnd: panzoom,
+			topTubeStart: panzoom,
+			bottomTubeStart: panzoom,
+			topTubeEnd: panzoom,
+			seatTubeEnd: panzoom,
+			bb: panzoom,
+			bbProjection: panzoom,
 		}, model)
 	}
 )
 
 
 
-// -> Maybe IO
+// evthandler :: Maybe a -> Maybe IO
 const evthandler = (attrpath, model) => compose(
 	//Maybe IO Node
 	map(chain(domPatch("#root"))),
 	//Maybe IO Diff
-	map(map(domDiff(createTreeOnce(model)))),
+	map(map(d => domDiff(createTree(model))(d))), //not preloading to avoid infinite loop
 	//Maybe IO VTree
 	map(map(createTree)),
 	//Maybe IO Model
 	map(setModel),
 	//Maybe Model
-	map(changeTube(attrpath, model))
+	map(changeModel(attrpath, model))
 	//Maybe a
 )
 
 // createInputsTree :: Model -> VTree
 const createInputsTree = model => h("div.inputs", [
 	{
+		path: ["wheelbaseLen"],
+		label: "wheelbase",
+		formatForHumans: identity,
+		formatForCalculations: safe(lt(model.chainstayLen + model.topTubeLen + model.forkLen + model.headTubeLen)), //TODO improve validation
+		guide: lineThroughPoints(["frontHub", "rearHub"]),
+	},
+	{
 		path: ["topTubeLen"],
-		label: "effective top tube length",
+		label: "top tube length",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
 	},
 	{
 		path: ["forkLen"],
 		label: "fork length",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(4 * model.forkOffset)),
+		guide: lineThroughPoints(["frontHub", "headTubeStart"]),
+	},
+	{
+		path: ["headTubeLen"],
+		label: "head tube length (mm)",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(model.bottomTubeOffset)),
+		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
 	},
 	{
 		path: ["headTubeAngle"],
 		label: "head tube angle",
-		step: 0.1,
 		formatForHumans: compose(
 			round,
 			toDegrees,
-			multiply(-1)
+			add(-Math.PI)
 		),
 		formatForCalculations: compose(
-			map(multiply(-1)),
+			map(add(Math.PI)),
 			map(toRadians),
 			chain(safe(lt(90))),
 			safe(gt(0))
 		),
+		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeStart"]),
+	},
+	{
+		path: ["seatTubeLen"],
+		label: "seat tube length",
+		formatForHumans: identity,
+		formatForCalculations: Maybe.Just,
+		guide: lineThroughPoints(["bb", "topTubeEnd"]),
 	},
 	{
 		path: ["seatTubeAngle"],
 		label: "seat tube angle",
-		step: 0.1,
 		formatForHumans: compose(
 			round,
 			toDegrees,
-			multiply(-1)
+			add(-Math.PI)
 		),
 		formatForCalculations: compose(
-			map(multiply(-1)),
+			map(add(Math.PI)),
 			map(toRadians),
 			chain(safe(lt(90))),
 			safe(gt(0))
 		),
 	},
 	{
-		path: ["calculatedChainstay"],
-		label: "(chainstay length)",
+		path: ["chainstayLen"],
+		label: "chainstay",
 		formatForHumans: round,
-		formatForCalculations: Maybe.Nothing,
-		disabled: true,
+		formatForCalculations: Maybe.Just,
+		guide: lineThroughPoints(["bb", "rearHub"]),
 	},
 	{
-		path: ["calculatedBbDrop"],
-		label: "(bb drop)",
+		path: ["bbDropLen"],
+		label: "bb drop",
 		formatForHumans: round,
-		formatForCalculations: Maybe.Nothing,
-		disabled: true,
+		formatForCalculations: Maybe.Just,
+		guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
+	},
+	{
+		path: ["seatTubeExtra"],
+		label: "seat tube padding",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(model.thickness)),
+		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
 	},
 	{
 		path: ["calculatedReach"],
-		label: "(reach)",
+		label: "reach",
 		formatForHumans: round,
 		formatForCalculations: Maybe.Nothing,
-		disabled: true,
+		readonly: true,
+		guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
 	},
-].map(x => h("div", [
-	h("span", {
-		style: {
-			"text-transform": "capitalize",
-		},
-	}, (x.label || x.path.join(" "))),
+].map(x => h(`div .${inputStyle.container}`, [
+	h("label", {}, (x.label || x.path.join(" "))),
 	h("input", {
 		type: "number",
-		step: x.step || 1,
+		step: 0.1,
 		value: x.formatForHumans(withDefault(0, path(x.path, model))),
-		disabled: x.disabled,
+		readonly: x.readonly,
+		onfocus: compose(
+			map(run),
+			chain(evthandler(["guide"], model)),
+			map(Maybe.of),
+			//Maybe Guide
+			() => safe(identity, x.guide)
+			//undefined | Guide
+		),
 		onchange: compose(
 			tap(() => console.log("END RUN")),
 			map(run),
@@ -414,71 +511,98 @@ const createInputsTree = model => h("div.inputs", [
 			chain(parseFloatSafe),
 			//Maybe String
 			path(["target", "value"])
-			//Event
 		),
 	}),
-])))
+])).concat([
+	h(`div .${inputStyle.container}`, [
+		h("label", {}, "color"),
+		h("select",
+			{
+				onchange: compose(
+					map(run),
+					evthandler(["fillColor"], model),
+					path(["target", "value"])
+				),
+			},
+			[
+				{name: "black", code: "black"},
+				{name: "blue", code: "#228"},
+				{name: "red", code: "#B44"},
+			].map(c => h("option", {
+				value: c.code,
+			}, c.name))
+		),
+	]),
+]))
+
 
 // createTree :: Model -> VTree
 const createTree = compose(
-	model => h("div#root", [
-		//h("pre.debug", [JSON.stringify(model, null, 2)]),
+	model => h("div#root" + ` .${rootStyle.container}`, [
 		createInputsTree(model),
 		createBicycleSvg(model),
 	]),
-	flip(reduce((x, f) => {
-		//debugger
-		return f(x)
-	})) ([
+	flip(reduce((x, f) => f(x))) ([
 		x => assign({
-			frontHub: point(0, 0),
-			rearHub: point(x.wheelbaseLen, 0),
-			headTubeProjection: point(x.forkOffset / Math.sin(Math.abs(x.headTubeAngle)), 0),
-			forkAngle: (x.headTubeAngle < 0 ? -1 : +1) * (Math.abs(x.headTubeAngle) - Math.asin(x.forkOffset / x.forkLen)),
+			bb: point(x.pan.x, x.pan.y),
 			topTubeOffset: x.headTubeLen / 4,
-			bottomTubeOffset: x.headTubeLen*3 / 4,
+			bottomTubeOffset: x.headTubeLen * 0.7,
+		}, x),
+		x => assign({
+			seatTubeEnd: addPoints(x.bb, avector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle)),
+			topTubeEnd: addPoints(x.bb, avector(x.seatTubeLen, x.seatTubeAngle)),
+			rearHub: addPoints(
+				x.bb,
+				point(
+					-x.chainstayLen * Math.cos(Math.asin(x.bbDropLen / x.chainstayLen)),
+					-x.bbDropLen
+				)
+			),
+			forkAngle: x.headTubeAngle - Math.asin(x.forkOffset / x.forkLen),
+			//TODO why minus?
+		}, x),
+		x => assign({
+			frontHub: addPoints(x.rearHub, point(x.wheelbaseLen, 0)),
 		}, x),
 		x => assign({
 			headTubeStart: addPoints(x.frontHub, avector(x.forkLen, x.forkAngle)),
+			headTubeProjection: addPoints(x.frontHub, point(x.forkOffset / Math.sin(x.headTubeAngle), 0)),
 		}, x),
 		x => assign({
 			headTubeEnd: addPoints(x.headTubeStart, avector(x.headTubeLen, x.headTubeAngle)),
 			topTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.topTubeOffset, x.headTubeAngle)),
-			bottomTubeEnd: addPoints(x.headTubeStart, avector(x.headTubeLen - x.bottomTubeOffset, x.headTubeAngle)),
+			bottomTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.bottomTubeOffset, x.headTubeAngle)),
 		}, x),
 		x => assign({
-			topTubeEnd: addPoints(x.topTubeStart, avector(x.topTubeLen, x.topTubeAngle)),
-		}, x),
-		x => assign({
-			bb: addPoints(x.topTubeEnd, avector(x.seatTubeLen - x.tubeThickness / Math.abs(Math.sin(x.seatTubeAngle)), x.seatTubeAngle + Math.PI)),
-		}, x),
-		x => assign({
-			calculatedChainstay: vectorLen(subPoints(x.rearHub, x.bb)),
-			calculatedBbDrop: Math.abs(x.bb.y - x.frontHub.y),
 			calculatedReach: Math.abs(x.bb.x - x.headTubeEnd.x),
 		}, x),
 	])
 )
 
-// createTreeOnce :: Model -> VTree
-const createTreeOnce = limitedMemoize(createTree)
 run(setModel({
+	bbDropLen: 78,
+	chainstayLen: 460,
 	forkLen: 390,
 	forkOffset: 45,
-	headTubeLen: 110.7,
-	//calculated topTubeOffset: 110.7 / 3, //offset where top-tube connects head-tube
-	//calculated bottomTubeOffset: 2 * 110.7 / 3, //offset where bottom-tube connects head-tube
-	headTubeAngle: toRadians(-72),
-	topTubeLen: 570, //effective
+	headTubeLen: 152,
+	headTubeAngle: Math.PI + toRadians(+72),
+	topTubeLen: 564.5,
 	topTubeAngle: toRadians(0),
 	seatTubeLen: 560,
-	seatTubeAngle: toRadians(-73),
+	seatTubeExtra: 20,
+	seatTubeAngle: Math.PI + toRadians(+73),
 	wheelbaseLen: 1055.6,
-	tubeThickness: 5,
+	thickness: 15,
 	zoom: 0.5,
-	pan: point(100, 300),
+	pan: point(200, 300),
+	fillColor: "black",
+	guide: lineThroughPoints([]),
 }))
+
 run(replaceDomWith(
 	"#root",
 	vdomCreate(createTree(getModel()))
 ))
+
+print("printing", Maybe.Just(3))
+inspect("inspecting", Maybe.Just(3))

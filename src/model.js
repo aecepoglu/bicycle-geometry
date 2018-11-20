@@ -1,6 +1,3 @@
-let myModel = {
-}
-
 class Model {
 	constructor(x) {
 		this._data = x
