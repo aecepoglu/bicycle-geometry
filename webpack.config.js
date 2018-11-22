@@ -1,5 +1,6 @@
 const path = require("path");
 const WebpackNotifierPlugin = require("webpack-notifier");
+const Dotenv = require("dotenv-webpack");
 
 module.exports = {
 	devtool: "eval-source-map",
@@ -34,6 +35,7 @@ module.exports = {
 
 	plugins: [
 		new WebpackNotifierPlugin({contentImage: undefined}),
+		new Dotenv(),
 	],
 
 	devServer: {

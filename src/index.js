@@ -38,6 +38,8 @@ import tap from "crocks/helpers/tap"
 import withDefault from "crocks/pointfree/option"
 
 import SafeModel from "./model"
+import {listBikes} from "./db"
+
 import rootStyle from "./style/root.css"
 import inputStyle from "./style/input.css"
 
@@ -110,6 +112,8 @@ const addPoints = (a, b) => point(a.x + b.x, a.y + b.y)
 const subPoints = (a, b) => point(a.x - b.x, a.y - b.y)
 // avector :: (Number, Angle) -> Point
 const avector = (l, a) => point(l * Math.cos(a), l * Math.sin(a))
+
+const vectorLen = p => Math.sqrt(p.x * p.x + p.y + p.y)
 
 // print :: String -> a -> a
 const print = curry((prefix, x) => {
@@ -305,7 +309,7 @@ const createBicycleSvg = compose(
 			d: spaced([ //fork
 				svgdp("M")(model.frontHub),
 				svgdp("Q ")(model.headTubeProjection),
-				svgdp(" ")(model.headTubeStart),
+				svgdp(" ")(model.forkCrown),
 			]),
 			stroke: model.fillColor,
 			fill: "none",
@@ -360,6 +364,7 @@ const createBicycleSvg = compose(
 			headTubeProjection: panzoom,
 			headTubeStart: panzoom,
 			headTubeEnd: panzoom,
+			forkCrown: panzoom,
 			topTubeStart: panzoom,
 			bottomTubeStart: panzoom,
 			topTubeEnd: panzoom,
@@ -398,10 +403,11 @@ const createInputsTree = model => h("div.inputs", [
 	},
 	{
 		path: ["topTubeLen"],
-		label: "top tube length",
+		label: "top tube length (readonly)",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
 		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+		readonly: true,
 	},
 	{
 		path: ["forkLen"],
@@ -411,11 +417,25 @@ const createInputsTree = model => h("div.inputs", [
 		guide: lineThroughPoints(["frontHub", "headTubeStart"]),
 	},
 	{
+		path: ["forkOffset"],
+		label: "fork offset",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
+	},
+	{
 		path: ["headTubeLen"],
 		label: "head tube length (mm)",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.bottomTubeOffset)),
 		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+	},
+	{
+		path: ["topTubeOffset"],
+		label: "top tube offset in head tube",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
 	},
 	{
 		path: ["headTubeAngle"],
@@ -431,7 +451,7 @@ const createInputsTree = model => h("div.inputs", [
 			chain(safe(lt(90))),
 			safe(gt(0))
 		),
-		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeStart"]),
+		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
 	},
 	{
 		path: ["seatTubeLen"],
@@ -477,12 +497,18 @@ const createInputsTree = model => h("div.inputs", [
 		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
 	},
 	{
-		path: ["calculatedReach"],
+		path: ["reachLen"],
 		label: "reach",
 		formatForHumans: round,
-		formatForCalculations: Maybe.Nothing,
-		readonly: true,
+		formatForCalculations: Maybe.Just,
 		guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
+	},
+	{
+		path: ["stackLen"],
+		label: "stack",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Just,
+		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
 	},
 ].map(x => h(`div .${inputStyle.container}`, [
 	h("label", {}, (x.label || x.path.join(" "))),
@@ -545,10 +571,10 @@ const createTree = compose(
 	flip(reduce((x, f) => f(x))) ([
 		x => assign({
 			bb: point(x.pan.x, x.pan.y),
-			topTubeOffset: x.headTubeLen / 4,
 			bottomTubeOffset: x.headTubeLen * 0.7,
 		}, x),
 		x => assign({
+			headTubeEnd: addPoints(x.bb, point(x.reachLen, -x.stackLen)),
 			seatTubeEnd: addPoints(x.bb, avector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle)),
 			topTubeEnd: addPoints(x.bb, avector(x.seatTubeLen, x.seatTubeAngle)),
 			rearHub: addPoints(
@@ -563,18 +589,19 @@ const createTree = compose(
 		}, x),
 		x => assign({
 			frontHub: addPoints(x.rearHub, point(x.wheelbaseLen, 0)),
+			headTubeStart: addPoints(x.headTubeEnd, avector(x.headTubeLen, x.headTubeAngle + Math.PI)),
 		}, x),
 		x => assign({
-			headTubeStart: addPoints(x.frontHub, avector(x.forkLen, x.forkAngle)),
+			forkCrown: addPoints(x.frontHub, avector(x.forkLen, x.forkAngle)),
 			headTubeProjection: addPoints(x.frontHub, point(x.forkOffset / Math.sin(x.headTubeAngle), 0)),
 		}, x),
 		x => assign({
-			headTubeEnd: addPoints(x.headTubeStart, avector(x.headTubeLen, x.headTubeAngle)),
+			//headTubeEnd: addPoints(x.headTubeStart, avector(x.headTubeLen, x.headTubeAngle)),
 			topTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.topTubeOffset, x.headTubeAngle)),
 			bottomTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.bottomTubeOffset, x.headTubeAngle)),
 		}, x),
 		x => assign({
-			calculatedReach: Math.abs(x.bb.x - x.headTubeEnd.x),
+			topTubeLen: round(vectorLen(subPoints(x.topTubeStart, x.topTubeEnd))),
 		}, x),
 	])
 )
@@ -586,12 +613,15 @@ run(setModel({
 	forkOffset: 45,
 	headTubeLen: 152,
 	headTubeAngle: Math.PI + toRadians(+72),
+	topTubeOffset: 30,
 	topTubeLen: 564.5,
 	topTubeAngle: toRadians(0),
 	seatTubeLen: 560,
 	seatTubeExtra: 20,
 	seatTubeAngle: Math.PI + toRadians(+73),
 	wheelbaseLen: 1055.6,
+	stackLen: 588,
+	reachLen: 389.3,
 	thickness: 15,
 	zoom: 0.5,
 	pan: point(200, 300),
@@ -606,3 +636,10 @@ run(replaceDomWith(
 
 print("printing", Maybe.Just(3))
 inspect("inspecting", Maybe.Just(3))
+
+listBikes()
+	.map(map(mapProps({
+		headTubeAngle: compose(add(Math.PI), toRadians),
+		seatTubeAngle: compose(add(Math.PI), toRadians),
+	})))
+	.fork(print("couldn't retrieve list of bicycles from db"), print("result") )
