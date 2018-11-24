@@ -1,0 +1,12 @@
+# [o] done
+# [ ] todo
+###############
+
+[ ] pan/zoom
+[ ] validation errors
+	[ ] show error on bad input (text instead of number)
+	[ ] show error on impossible measurements
+		[ ] show warning on bad crown angle
+[ ] add combobox for selecting between bicycles
+[ ] save bicycles to DB
+[ ] improve guide definitions
