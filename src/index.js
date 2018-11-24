@@ -113,7 +113,7 @@ const subPoints = (a, b) => point(a.x - b.x, a.y - b.y)
 // avector :: (Number, Angle) -> Point
 const avector = (l, a) => point(l * Math.cos(a), l * Math.sin(a))
 
-const vectorLen = p => Math.sqrt(p.x * p.x + p.y + p.y)
+const vectorLen = p => Math.sqrt(p.x * p.x + p.y * p.y)
 
 // print :: String -> a -> a
 const print = curry((prefix, x) => {
@@ -288,6 +288,8 @@ const createBicycleSvg = compose(
 		svgTrapezoid(model.headTubeStart, model.headTubeEnd, 1.2 * model.thickness),
 		// seat stay
 		svgTrapezoid(model.rearHub, model.topTubeEnd, 0.5 * model.thickness, 0.8 * model.thickness),
+		// fork crown
+		svgTrapezoid(model.headTubeStart, model.forkStart, 1.5 * model.thickness),
 		svg("circle", { //bottom bracket
 			cx: model.bb.x,
 			cy: model.bb.y,
@@ -309,7 +311,7 @@ const createBicycleSvg = compose(
 			d: spaced([ //fork
 				svgdp("M")(model.frontHub),
 				svgdp("Q ")(model.headTubeProjection),
-				svgdp(" ")(model.forkCrown),
+				svgdp(" ")(model.forkStart),
 			]),
 			stroke: model.fillColor,
 			fill: "none",
@@ -364,7 +366,7 @@ const createBicycleSvg = compose(
 			headTubeProjection: panzoom,
 			headTubeStart: panzoom,
 			headTubeEnd: panzoom,
-			forkCrown: panzoom,
+			forkStart: panzoom,
 			topTubeStart: panzoom,
 			bottomTubeStart: panzoom,
 			topTubeEnd: panzoom,
@@ -397,14 +399,14 @@ const createInputsTree = model => h("div.inputs", [
 	{
 		path: ["wheelbaseLen"],
 		label: "wheelbase",
-		formatForHumans: identity,
+		formatForHumans: round,
 		formatForCalculations: safe(lt(model.chainstayLen + model.topTubeLen + model.forkLen + model.headTubeLen)), //TODO improve validation
 		guide: lineThroughPoints(["frontHub", "rearHub"]),
 	},
 	{
 		path: ["topTubeLen"],
-		label: "top tube length (readonly)",
-		formatForHumans: identity,
+		label: "top tube length",
+		formatForHumans: round,
 		formatForCalculations: safe(gt(0)),
 		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
 		readonly: true,
@@ -429,13 +431,6 @@ const createInputsTree = model => h("div.inputs", [
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.bottomTubeOffset)),
 		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
-	},
-	{
-		path: ["topTubeOffset"],
-		label: "top tube offset in head tube",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
 	},
 	{
 		path: ["headTubeAngle"],
@@ -490,13 +485,6 @@ const createInputsTree = model => h("div.inputs", [
 		guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
 	},
 	{
-		path: ["seatTubeExtra"],
-		label: "seat tube padding",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(model.thickness)),
-		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
-	},
-	{
 		path: ["reachLen"],
 		label: "reach",
 		formatForHumans: round,
@@ -509,6 +497,28 @@ const createInputsTree = model => h("div.inputs", [
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
+	},
+	{
+		path: ["crownHeight"],
+		label: "crown height",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Nothing,
+		guide: lineThroughPoints(["headTubeStart", "forkStart"]),
+		readonly: true,
+	},
+	{
+		path: ["seatTubeExtra"],
+		label: "seat tube padding",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(model.thickness)),
+		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
+	},
+	{
+		path: ["topTubeOffset"],
+		label: "top tube offset in head tube",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
 	},
 ].map(x => h(`div .${inputStyle.container}`, [
 	h("label", {}, (x.label || x.path.join(" "))),
@@ -561,7 +571,6 @@ const createInputsTree = model => h("div.inputs", [
 	]),
 ]))
 
-
 // createTree :: Model -> VTree
 const createTree = compose(
 	model => h("div#root" + ` .${rootStyle.container}`, [
@@ -577,11 +586,11 @@ const createTree = compose(
 			headTubeEnd: addPoints(x.bb, point(x.reachLen, -x.stackLen)),
 			seatTubeEnd: addPoints(x.bb, avector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle)),
 			topTubeEnd: addPoints(x.bb, avector(x.seatTubeLen, x.seatTubeAngle)),
-			rearHub: addPoints(
+			rearHub: subPoints(
 				x.bb,
 				point(
-					-x.chainstayLen * Math.cos(Math.asin(x.bbDropLen / x.chainstayLen)),
-					-x.bbDropLen
+					x.chainstayLen * Math.cos(Math.asin(x.bbDropLen / x.chainstayLen)),
+					x.bbDropLen
 				)
 			),
 			forkAngle: x.headTubeAngle - Math.asin(x.forkOffset / x.forkLen),
@@ -592,16 +601,16 @@ const createTree = compose(
 			headTubeStart: addPoints(x.headTubeEnd, avector(x.headTubeLen, x.headTubeAngle + Math.PI)),
 		}, x),
 		x => assign({
-			forkCrown: addPoints(x.frontHub, avector(x.forkLen, x.forkAngle)),
+			forkStart: addPoints(x.frontHub, avector(x.forkLen, x.forkAngle)),
 			headTubeProjection: addPoints(x.frontHub, point(x.forkOffset / Math.sin(x.headTubeAngle), 0)),
 		}, x),
 		x => assign({
-			//headTubeEnd: addPoints(x.headTubeStart, avector(x.headTubeLen, x.headTubeAngle)),
 			topTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.topTubeOffset, x.headTubeAngle)),
 			bottomTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.bottomTubeOffset, x.headTubeAngle)),
 		}, x),
 		x => assign({
-			topTubeLen: round(vectorLen(subPoints(x.topTubeStart, x.topTubeEnd))),
+			crownHeight: vectorLen(subPoints(x.forkStart, x.headTubeStart)),
+			topTubeLen: vectorLen(subPoints(x.topTubeStart, x.topTubeEnd)),
 		}, x),
 	])
 )
