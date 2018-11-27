@@ -40,8 +40,7 @@ import withDefault from "crocks/pointfree/option"
 import SafeModel from "./model"
 import {listBikes} from "./db"
 
-import rootStyle from "./style/root.css"
-import inputStyle from "./style/input.css"
+import "./style.less"
 
 /*
  * Helpers
@@ -271,8 +270,6 @@ const createBicycleSvg = compose(
 	model => svg("svg", {
 		style: {
 			fill: model.fillColor,
-			border: `1px solid ${ALT_COLOR}`,
-			//display: "none",
 		},
 		viewBox: "0 0 700 550",
 	}, [
@@ -394,186 +391,252 @@ const evthandler = (attrpath, model) => compose(
 	//Maybe a
 )
 
+const unit = (long, short) => ({long, short})
+
 // createInputsTree :: Model -> VTree
-const createInputsTree = model => h("div.inputs", [
-	{
-		path: ["wheelbaseLen"],
-		label: "wheelbase",
-		formatForHumans: round,
-		formatForCalculations: safe(lt(model.chainstayLen + model.topTubeLen + model.forkLen + model.headTubeLen)), //TODO improve validation
-		guide: lineThroughPoints(["frontHub", "rearHub"]),
-	},
-	{
-		path: ["topTubeLen"],
-		label: "top tube length",
-		formatForHumans: round,
-		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
-		readonly: true,
-	},
-	{
-		path: ["forkLen"],
-		label: "fork length",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(4 * model.forkOffset)),
-		guide: lineThroughPoints(["frontHub", "headTubeStart"]),
-	},
-	{
-		path: ["forkOffset"],
-		label: "fork offset",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
-	},
-	{
-		path: ["headTubeLen"],
-		label: "head tube length (mm)",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(model.bottomTubeOffset)),
-		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
-	},
-	{
-		path: ["headTubeAngle"],
-		label: "head tube angle",
-		formatForHumans: compose(
-			round,
-			toDegrees,
-			add(-Math.PI)
-		),
-		formatForCalculations: compose(
-			map(add(Math.PI)),
-			map(toRadians),
-			chain(safe(lt(90))),
-			safe(gt(0))
-		),
-		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
-	},
-	{
-		path: ["seatTubeLen"],
-		label: "seat tube length",
-		formatForHumans: identity,
-		formatForCalculations: Maybe.Just,
-		guide: lineThroughPoints(["bb", "topTubeEnd"]),
-	},
-	{
-		path: ["seatTubeAngle"],
-		label: "seat tube angle",
-		formatForHumans: compose(
-			round,
-			toDegrees,
-			add(-Math.PI)
-		),
-		formatForCalculations: compose(
-			map(add(Math.PI)),
-			map(toRadians),
-			chain(safe(lt(90))),
-			safe(gt(0))
-		),
-	},
-	{
-		path: ["chainstayLen"],
-		label: "chainstay",
-		formatForHumans: round,
-		formatForCalculations: Maybe.Just,
-		guide: lineThroughPoints(["bb", "rearHub"]),
-	},
-	{
-		path: ["bbDropLen"],
-		label: "bb drop",
-		formatForHumans: round,
-		formatForCalculations: Maybe.Just,
-		guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
-	},
-	{
-		path: ["reachLen"],
-		label: "reach",
-		formatForHumans: round,
-		formatForCalculations: Maybe.Just,
-		guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
-	},
-	{
-		path: ["stackLen"],
-		label: "stack",
-		formatForHumans: round,
-		formatForCalculations: Maybe.Just,
-		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
-	},
-	{
-		path: ["crownHeight"],
-		label: "crown height",
-		formatForHumans: round,
-		formatForCalculations: Maybe.Nothing,
-		guide: lineThroughPoints(["headTubeStart", "forkStart"]),
-		readonly: true,
-	},
-	{
-		path: ["seatTubeExtra"],
-		label: "seat tube padding",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(model.thickness)),
-		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
-	},
-	{
-		path: ["topTubeOffset"],
-		label: "top tube offset in head tube",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
-	},
-].map(x => h(`div .${inputStyle.container}`, [
-	h("label", {}, (x.label || x.path.join(" "))),
-	h("input", {
-		type: "number",
-		step: 0.1,
-		value: x.formatForHumans(withDefault(0, path(x.path, model))),
-		readonly: x.readonly,
-		onfocus: compose(
-			map(run),
-			chain(evthandler(["guide"], model)),
-			map(Maybe.of),
-			//Maybe Guide
-			() => safe(identity, x.guide)
-			//undefined | Guide
-		),
-		onchange: compose(
-			tap(() => console.log("END RUN")),
-			map(run),
-			tap(() => console.log("BEGIN RUN")),
-			//Maybe IO
-			chain(evthandler(x.path, model)),
-			//Maybe a
-			map(x.formatForCalculations),
-			//Maybe Float
-			chain(parseFloatSafe),
-			//Maybe String
-			path(["target", "value"])
-		),
-	}),
-])).concat([
-	h(`div .${inputStyle.container}`, [
-		h("label", {}, "color"),
-		h("select",
-			{
-				onchange: compose(
+// TODO this method is too long... look into refactoring it
+const createInputsTree = model => h("div .inputs .tabbedPanel", [
+	h("div .tabs",
+		[
+			{color: "yellow"},
+			{color: "red"},
+		].map(x => h("span", {
+			style: {
+				color: x.color,
+				"font-size": "1.5em",
+			},
+		}, "•"))
+	),
+	h("div .panel", [
+		{
+			path: ["wheelbaseLen"],
+			label: "wheelbase",
+			formatForHumans: round,
+			formatForCalculations: safe(lt(
+				model.chainstayLen +
+				model.topTubeLen +
+				model.forkLen +
+				model.headTubeLen
+			)), //TODO improve validation
+			guide: lineThroughPoints(["frontHub", "rearHub"]),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["topTubeLen"],
+			label: "top tube",
+			formatForHumans: round,
+			formatForCalculations: safe(gt(0)),
+			guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+			readonly: true,
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["forkLen"],
+			label: "fork",
+			formatForHumans: identity,
+			formatForCalculations: safe(gt(4 * model.forkOffset)),
+			guide: lineThroughPoints(["frontHub", "forkStart"]),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["forkOffset"],
+			label: "fork offset",
+			formatForHumans: identity,
+			formatForCalculations: safe(gt(0)),
+			guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["headTubeLen"],
+			label: "head tube",
+			formatForHumans: identity,
+			formatForCalculations: safe(gt(model.bottomTubeOffset)),
+			guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["headTubeAngle"],
+			label: "head tube angle",
+			formatForHumans: compose(
+				round,
+				toDegrees,
+				add(-Math.PI)
+			),
+			formatForCalculations: compose(
+				map(add(Math.PI)),
+				map(toRadians),
+				chain(safe(lt(90))),
+				safe(gt(0))
+			),
+			guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
+			unit: unit("degrees", "°"),
+		},
+		{
+			path: ["seatTubeLen"],
+			label: "seat tube",
+			formatForHumans: identity,
+			formatForCalculations: Maybe.Just,
+			guide: lineThroughPoints(["bb", "topTubeEnd"]),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["seatTubeAngle"],
+			label: "seat tube angle",
+			formatForHumans: compose(
+				round,
+				toDegrees,
+				add(-Math.PI)
+			),
+			formatForCalculations: compose(
+				map(add(Math.PI)),
+				map(toRadians),
+				chain(safe(lt(90))),
+				safe(gt(0))
+			),
+			unit: unit("degrees", "°"),
+		},
+		{
+			path: ["chainstayLen"],
+			label: "chainstay",
+			formatForHumans: round,
+			formatForCalculations: Maybe.Just,
+			guide: lineThroughPoints(["bb", "rearHub"]),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["bbDropLen"],
+			label: "bb drop",
+			formatForHumans: round,
+			formatForCalculations: Maybe.Just,
+			guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["reachLen"],
+			label: "reach",
+			formatForHumans: round,
+			formatForCalculations: Maybe.Just,
+			guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["stackLen"],
+			label: "stack",
+			formatForHumans: round,
+			formatForCalculations: Maybe.Just,
+			guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
+			unit: unit("milimeters", "mm"),
+		},
+		{
+			path: ["crownHeight"],
+			label: "crown height",
+			formatForHumans: round,
+			formatForCalculations: Maybe.Nothing,
+			guide: lineThroughPoints(["headTubeStart", "forkStart"]),
+			readonly: true,
+			unit: unit("milimeters", "mm"),
+			isExtra: true,
+		},
+		{
+			path: ["seatTubeExtra"],
+			label: "seat tube padding",
+			formatForHumans: identity,
+			formatForCalculations: safe(gt(model.thickness)),
+			guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
+			unit: unit("milimeters", "mm"),
+			isExtra: true,
+		},
+		{
+			path: ["topTubeOffset"],
+			label: "top tube offset in head tube",
+			formatForHumans: identity,
+			formatForCalculations: safe(gt(0)),
+			guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
+			unit: unit("milimeters", "mm"),
+			isExtra: true,
+		},
+	]
+		.filter(x => !x.isExtra || model.areExtrasShown)
+		.map(x => h("div .inputContainer", [
+			h("label", {}, (x.label || x.path.join(" "))),
+			h("input", {
+				type: "number",
+				step: 0.1,
+				value: x.formatForHumans(withDefault(0, path(x.path, model))),
+				readonly: x.readonly,
+				onfocus: compose(
 					map(run),
-					evthandler(["fillColor"], model),
+					chain(evthandler(["guide"], model)),
+					map(Maybe.of),
+					//Maybe Guide
+					() => safe(identity, x.guide)
+					//undefined | Guide
+				),
+				onchange: compose(
+					tap(() => console.log("END RUN")),
+					map(run),
+					tap(() => console.log("BEGIN RUN")),
+					//Maybe IO
+					chain(evthandler(x.path, model)),
+					//Maybe a
+					map(x.formatForCalculations),
+					//Maybe Float
+					chain(parseFloatSafe),
+					//Maybe String
 					path(["target", "value"])
 				),
-			},
-			[
-				{name: "black", code: "black"},
-				{name: "blue", code: "#228"},
-				{name: "red", code: "#B44"},
-			].map(c => h("option", {
-				value: c.code,
-			}, c.name))
-		),
-	]),
-]))
+			}),
+			h("span.unit", {
+				title: x.unit.long,
+			}, x.unit.short),
+		])).concat([
+			h("div", {
+				style: {
+					"line-height": "2em",
+					"text-align": "center",
+					"font-size": "0.9em",
+					"cursor": "pointer",
+				},
+			}, [
+				h("span", {
+					onclick: compose(
+						map(run),
+						evthandler(["areExtrasShown"], model),
+						() => Maybe.Just(!model.areExtrasShown)
+					),
+					style: {
+						"text-decoration": "underline",
+					},
+				}, [
+					model.areExtrasShown ? "hide extras" : "extras",
+				]),
+			]),
+			h("div .inputContainer", [
+				h("label", {}, "color"),
+				h("select",
+					{
+						onchange: compose(
+							map(run),
+							evthandler(["fillColor"], model),
+							path(["target", "value"])
+						),
+					},
+					[
+						{name: "black", code: "black"},
+						{name: "blue", code: "#228"},
+						{name: "red", code: "#B44"},
+					].map(c => h("option", {
+						value: c.code,
+					}, c.name))
+				),
+			]),
+		])
+	),
+])
 
 // createTree :: Model -> VTree
 const createTree = compose(
-	model => h("div#root" + ` .${rootStyle.container}`, [
+	model => h("div#root .container", [
 		createInputsTree(model),
 		createBicycleSvg(model),
 	]),

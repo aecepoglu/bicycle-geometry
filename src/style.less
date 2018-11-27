@@ -1,0 +1,82 @@
+body {
+	background-color: #555;
+	color: white;
+	font-family: sans-serif;
+}
+
+.container {
+	display: flex;
+
+	.inputs {
+	}
+
+	svg {
+		max-height: 800px;
+	}
+}
+
+.tabbedPanel {
+	.tabs {
+	}
+
+	.panel {
+		border: 2px solid #444;
+	}
+}
+
+.inputContainer {
+	padding: 0.5em 0.5em;
+	display: flex;
+	align-items: center;
+
+	&:nth-child(2n+1) {
+		background-color: #444;
+	}
+
+
+	label {
+		display: block;
+		text-transform: capitalize;
+		font-size: 0.9em;
+		width: 100px;
+	}
+
+	input, select {
+		margin-left: 0.5em;
+		width: 75px;
+	}
+
+	input {
+		background-color: inherit;
+
+		border-style: solid;
+		border-width: 1px;
+		border-color: transparent transparent grey transparent;
+
+		color: inherit;
+		padding: 0 0.5em;
+
+		&:hover {
+			border-color: grey;
+		}
+
+		&:focus {
+			background-color: white;
+			color: black;
+		}
+
+		&[type="number"] {
+			text-align: right;
+		}
+	}
+
+	.unit {
+		font-size: 0.7em;
+		color: grey;
+	}
+	
+}
+
+input {
+	-moz-appearance: textfield;
+}
