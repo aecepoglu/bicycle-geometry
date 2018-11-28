@@ -10,12 +10,14 @@ import Maybe from "crocks/Maybe"
 import Reader from "crocks/Reader"
 // Helpers
 import assign from "crocks/helpers/assign"
+import branch from "crocks/Pair/branch"
 import chain from "crocks/pointfree/chain"
 import compose from "crocks/helpers/compose"
 import concat from "crocks/pointfree/concat"
 import curry from "crocks/helpers/curry"
 import identity from "crocks/combinators/identity"
 import fanout from "crocks/helpers/fanout"
+import find from "crocks/Maybe/find"
 import flip from "crocks/combinators/flip"
 import head from "crocks/pointfree/head"
 import liftA2 from "crocks/helpers/liftA2"
@@ -23,10 +25,12 @@ import listToArray from "crocks/List/listToArray"
 import map from "crocks/pointfree/map"
 import mapProps from "crocks/helpers/mapProps"
 import merge from "crocks/pointfree/merge"
+import objOf from "crocks/helpers/objOf"
 import omit from "crocks/helpers/omit"
-import prop from "crocks/Maybe/prop"
 import path from "crocks/Maybe/propPath"
 import pick from "crocks/helpers/pick"
+import prop from "crocks/Maybe/prop"
+import propEq from "crocks/predicates/propEq"
 import reduce from "crocks/pointfree/reduce"
 import run from "crocks/pointfree/run"
 import runWith from "crocks/pointfree/runWith"
@@ -393,18 +397,37 @@ const evthandler = (attrpath, model) => compose(
 
 const unit = (long, short) => ({long, short})
 
+// mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
+const mergeListsBy = f => (list1, list2) => list1.map((_, i) => f(list1[i], list2[i]))
+
+// showTabs :: String -> [BikeModel] -> VTree
+const showTabs = name => compose(
+	x => h(name, x),
+	concat([
+		h("span .tabButton", ["+"]),
+	]),
+	map(x => h(`span .tabButton ${x.isCurrentTab ? ".active" : ""}`, {
+		style: { color: x.color },
+		title: x.name,
+		onclick: () => {
+			console.log(x.index)
+		},
+	}, `•${x.index}`)),
+	merge(mergeListsBy(assign)),
+	fanout(
+		compose(
+			map(objOf("index")),
+			map(parseInt),
+			Object.keys
+		),
+		identity
+	)
+)
+
 // createInputsTree :: Model -> VTree
 // TODO this method is too long... look into refactoring it
 const createInputsTree = model => h("div .inputs .tabbedPanel", [
-	h("div .tabs",
-		model.myBikes.map((x, i) => h(`span .tabButton ${i == 0 ? ".active" : ""}`, {
-			style: {
-				color: x.color,
-			},
-		}, `•${i}`)).concat([
-			h("span .tabButton", ["+"]),
-		])
-	),
+	showTabs("div .tabs")(model.myBikes),
 	h("div .panel", [
 		{
 			path: ["wheelbaseLen"],
@@ -632,6 +655,19 @@ const createInputsTree = model => h("div .inputs .tabbedPanel", [
 	),
 ])
 
+const changePropBy = (p, f) => compose(
+	//Maybe Object
+	merge(
+		flip(setPath([p]))
+	),
+	map(compose(
+		withDefault(undefined),
+		map(x => f(x)),
+		prop(p)
+	)),
+	branch
+)
+
 // createTree :: Model -> VTree
 const createTree = compose(
 	model => h("div#root .container", [
@@ -673,7 +709,19 @@ const createTree = compose(
 			crownHeight: vectorLen(subPoints(x.forkStart, x.headTubeStart)),
 			topTubeLen: vectorLen(subPoints(x.topTubeStart, x.topTubeEnd)),
 		}, x),
-	])
+	]),
+	print("a"),
+	changePropBy("myBikes", map(pick(["name", "fillColor", "isCurrentTab"]))),
+	merge(assign),
+	fanout(
+		pick(["zoom", "pan", "guide", "myBikes"]),
+		compose(
+			withDefault({}),
+			map(omit(["isCurrentTab"])),
+			chain(find(propEq("isCurrentTab", true))),
+			path(["myBikes"])
+		)
+	)
 )
 
 run(setModel({
@@ -695,26 +743,8 @@ run(setModel({
 		reachLen: 389.3,
 		thickness: 15,
 		fillColor: "black",
+		isCurrentTab: true,
 	}],
-	//FIXME bad model design having to duplicate data like this
-	bbDropLen: 78,
-	chainstayLen: 460,
-	forkLen: 390,
-	forkOffset: 45,
-	headTubeLen: 152,
-	headTubeAngle: Math.PI + toRadians(+72),
-	topTubeOffset: 30,
-	topTubeLen: 564.5,
-	topTubeAngle: toRadians(0),
-	seatTubeLen: 560,
-	seatTubeExtra: 20,
-	seatTubeAngle: Math.PI + toRadians(+73),
-	wheelbaseLen: 1055.6,
-	stackLen: 588,
-	reachLen: 389.3,
-	thickness: 15,
-	fillColor: "black",
-	curTab: 0,
 	zoom: 0.5,
 	pan: point(200, 300),
 	guide: lineThroughPoints([]),
