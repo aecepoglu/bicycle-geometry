@@ -1,4 +1,8 @@
 {
+	"globals": {
+		"console": true,
+		"document": true
+	},
 	"parserOptions": {
 		"sourceType": "module"
 	},
@@ -6,6 +10,7 @@
 		"comma-dangle": ["error", "always-multiline"],
 		"quotes": ["error", "double"],
 		"no-var": "error",
+		"no-undef": "error",
 		"no-unused-vars": "warn"
 	}
 }
