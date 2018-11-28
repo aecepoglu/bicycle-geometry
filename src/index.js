@@ -397,15 +397,13 @@ const unit = (long, short) => ({long, short})
 // TODO this method is too long... look into refactoring it
 const createInputsTree = model => h("div .inputs .tabbedPanel", [
 	h("div .tabs",
-		[
-			{color: "yellow"},
-			{color: "red"},
-		].map(x => h("span", {
+		model.myBikes.map((x, i) => h(`span .tabButton ${i == 0 ? ".active" : ""}`, {
 			style: {
 				color: x.color,
-				"font-size": "1.5em",
 			},
-		}, "•"))
+		}, `•${i}`)).concat([
+			h("span .tabButton", ["+"]),
+		])
 	),
 	h("div .panel", [
 		{
@@ -679,6 +677,26 @@ const createTree = compose(
 )
 
 run(setModel({
+	myBikes: [{
+		bbDropLen: 78,
+		chainstayLen: 460,
+		forkLen: 390,
+		forkOffset: 45,
+		headTubeLen: 152,
+		headTubeAngle: Math.PI + toRadians(+72),
+		topTubeOffset: 30,
+		topTubeLen: 564.5,
+		topTubeAngle: toRadians(0),
+		seatTubeLen: 560,
+		seatTubeExtra: 20,
+		seatTubeAngle: Math.PI + toRadians(+73),
+		wheelbaseLen: 1055.6,
+		stackLen: 588,
+		reachLen: 389.3,
+		thickness: 15,
+		fillColor: "black",
+	}],
+	//FIXME bad model design having to duplicate data like this
 	bbDropLen: 78,
 	chainstayLen: 460,
 	forkLen: 390,
@@ -695,9 +713,10 @@ run(setModel({
 	stackLen: 588,
 	reachLen: 389.3,
 	thickness: 15,
+	fillColor: "black",
+	curTab: 0,
 	zoom: 0.5,
 	pan: point(200, 300),
-	fillColor: "black",
 	guide: lineThroughPoints([]),
 }))
 
