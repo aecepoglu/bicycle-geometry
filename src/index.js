@@ -10,14 +10,14 @@ import Maybe from "crocks/Maybe"
 import Reader from "crocks/Reader"
 // Helpers
 import assign from "crocks/helpers/assign"
-import branch from "crocks/Pair/branch"
 import chain from "crocks/pointfree/chain"
 import compose from "crocks/helpers/compose"
 import concat from "crocks/pointfree/concat"
+import cons from "crocks/pointfree/cons"
 import curry from "crocks/helpers/curry"
 import identity from "crocks/combinators/identity"
 import fanout from "crocks/helpers/fanout"
-import find from "crocks/Maybe/find"
+import filter from "crocks/pointfree/filter"
 import flip from "crocks/combinators/flip"
 import head from "crocks/pointfree/head"
 import liftA2 from "crocks/helpers/liftA2"
@@ -30,7 +30,6 @@ import omit from "crocks/helpers/omit"
 import path from "crocks/Maybe/propPath"
 import pick from "crocks/helpers/pick"
 import prop from "crocks/Maybe/prop"
-import propEq from "crocks/predicates/propEq"
 import reduce from "crocks/pointfree/reduce"
 import run from "crocks/pointfree/run"
 import runWith from "crocks/pointfree/runWith"
@@ -45,6 +44,17 @@ import SafeModel from "./model"
 import {listBikes} from "./db"
 
 import "./style.less"
+
+/*
+ * Model Initialization
+ */
+
+// Model myModel 
+let myModel = new SafeModel()
+// getModel :: () -> Model
+//const getModel = () => myModel.get()
+// setModel :: Model -> IO Model
+const setModel = x => new IO(() => myModel.set(x))
 
 /*
  * Helpers
@@ -126,24 +136,16 @@ const print = curry((prefix, x) => {
 
 const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 
-/*
- *
- * Model Initialization
- *
- */
+// mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
+const mergeListsBy = f => (list1, list2) => list1.map((_, i) => f(list1[i], list2[i]))
 
-// Model myModel 
-let myModel = new SafeModel()
-// getModel :: () -> Model
-const getModel = () => myModel.get()
-// setModel :: Model -> IO Model
-const setModel = x => new IO(() => myModel.set(x))
+Array.of = x => [x]
 
-/*
- *
- * Utilities
- *
- */
+const COLORS = [
+	{name: "black", code: "black"},
+	{name: "blue", code: "#228"},
+	{name: "red", code: "#B44"},
+]
 
 const round = toFixed(10)
 
@@ -378,8 +380,6 @@ const createBicycleSvg = compose(
 	}
 )
 
-
-
 // evthandler :: Maybe a -> Maybe IO
 const evthandler = (attrpath, model) => compose(
 	//Maybe IO Node
@@ -397,16 +397,13 @@ const evthandler = (attrpath, model) => compose(
 
 const unit = (long, short) => ({long, short})
 
-// mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
-const mergeListsBy = f => (list1, list2) => list1.map((_, i) => f(list1[i], list2[i]))
-
 // showTabs :: String -> [BikeModel] -> VTree
-const showTabs = name => compose(
+const showTabs = (name, activeTabIndex) => compose(
 	x => h(name, x),
 	concat([
 		h("span .tabButton", ["+"]),
 	]),
-	map(x => h(`span .tabButton ${x.isCurrentTab ? ".active" : ""}`, {
+	map(x => h(`span .tabButton ${x.index == activeTabIndex ? ".active" : ""}`, {
 		style: { color: x.color },
 		title: x.name,
 		onclick: () => {
@@ -425,248 +422,246 @@ const showTabs = name => compose(
 )
 
 // createInputsTree :: Model -> VTree
-// TODO this method is too long... look into refactoring it
-const createInputsTree = model => h("div .inputs .tabbedPanel", [
-	showTabs("div .tabs")(model.myBikes),
-	h("div .panel", [
-		{
-			path: ["wheelbaseLen"],
-			label: "wheelbase",
-			formatForHumans: round,
-			formatForCalculations: safe(lt(
-				model.chainstayLen +
-				model.topTubeLen +
-				model.forkLen +
-				model.headTubeLen
-			)), //TODO improve validation
-			guide: lineThroughPoints(["frontHub", "rearHub"]),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["topTubeLen"],
-			label: "top tube",
-			formatForHumans: round,
-			formatForCalculations: safe(gt(0)),
-			guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
-			readonly: true,
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["forkLen"],
-			label: "fork",
-			formatForHumans: identity,
-			formatForCalculations: safe(gt(4 * model.forkOffset)),
-			guide: lineThroughPoints(["frontHub", "forkStart"]),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["forkOffset"],
-			label: "fork offset",
-			formatForHumans: identity,
-			formatForCalculations: safe(gt(0)),
-			guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["headTubeLen"],
-			label: "head tube",
-			formatForHumans: identity,
-			formatForCalculations: safe(gt(model.bottomTubeOffset)),
-			guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["headTubeAngle"],
-			label: "head tube angle",
-			formatForHumans: compose(
-				round,
-				toDegrees,
-				add(-Math.PI)
-			),
-			formatForCalculations: compose(
-				map(add(Math.PI)),
-				map(toRadians),
-				chain(safe(lt(90))),
-				safe(gt(0))
-			),
-			guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
-			unit: unit("degrees", "°"),
-		},
-		{
-			path: ["seatTubeLen"],
-			label: "seat tube",
-			formatForHumans: identity,
-			formatForCalculations: Maybe.Just,
-			guide: lineThroughPoints(["bb", "topTubeEnd"]),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["seatTubeAngle"],
-			label: "seat tube angle",
-			formatForHumans: compose(
-				round,
-				toDegrees,
-				add(-Math.PI)
-			),
-			formatForCalculations: compose(
-				map(add(Math.PI)),
-				map(toRadians),
-				chain(safe(lt(90))),
-				safe(gt(0))
-			),
-			unit: unit("degrees", "°"),
-		},
-		{
-			path: ["chainstayLen"],
-			label: "chainstay",
-			formatForHumans: round,
-			formatForCalculations: Maybe.Just,
-			guide: lineThroughPoints(["bb", "rearHub"]),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["bbDropLen"],
-			label: "bb drop",
-			formatForHumans: round,
-			formatForCalculations: Maybe.Just,
-			guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["reachLen"],
-			label: "reach",
-			formatForHumans: round,
-			formatForCalculations: Maybe.Just,
-			guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["stackLen"],
-			label: "stack",
-			formatForHumans: round,
-			formatForCalculations: Maybe.Just,
-			guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
-			unit: unit("milimeters", "mm"),
-		},
-		{
-			path: ["crownHeight"],
-			label: "crown height",
-			formatForHumans: round,
-			formatForCalculations: Maybe.Nothing,
-			guide: lineThroughPoints(["headTubeStart", "forkStart"]),
-			readonly: true,
-			unit: unit("milimeters", "mm"),
-			isExtra: true,
-		},
-		{
-			path: ["seatTubeExtra"],
-			label: "seat tube padding",
-			formatForHumans: identity,
-			formatForCalculations: safe(gt(model.thickness)),
-			guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
-			unit: unit("milimeters", "mm"),
-			isExtra: true,
-		},
-		{
-			path: ["topTubeOffset"],
-			label: "top tube offset in head tube",
-			formatForHumans: identity,
-			formatForCalculations: safe(gt(0)),
-			guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
-			unit: unit("milimeters", "mm"),
-			isExtra: true,
-		},
-	]
-		.filter(x => !x.isExtra || model.areExtrasShown)
-		.map(x => h("div .inputContainer", [
-			h("label", {}, (x.label || x.path.join(" "))),
-			h("input", {
-				type: "number",
-				step: 0.1,
-				value: x.formatForHumans(withDefault(0, path(x.path, model))),
-				readonly: x.readonly,
-				onfocus: compose(
+const createInputsTree = model => compose(
+	x => h("div .inputs .tabbedPanel", x),
+	cons(showTabs("div .tabs", model.currentTabIndex)(model.myBikes)),
+	Array.of,
+	x => h("div .panel", x),
+	concat([
+		h("div", {
+			style: {
+				"line-height": "2em",
+				"text-align": "center",
+				"font-size": "0.9em",
+				"cursor": "pointer",
+			},
+		}, [
+			h("span", {
+				onclick: compose(
 					map(run),
-					chain(evthandler(["guide"], model)),
-					map(Maybe.of),
-					//Maybe Guide
-					() => safe(identity, x.guide)
-					//undefined | Guide
+					evthandler(["areExtrasShown"], model),
+					() => Maybe.Just(!model.areExtrasShown)
 				),
-				onchange: compose(
-					tap(() => console.log("END RUN")),
-					map(run),
-					tap(() => console.log("BEGIN RUN")),
-					//Maybe IO
-					chain(evthandler(x.path, model)),
-					//Maybe a
-					map(x.formatForCalculations),
-					//Maybe Float
-					chain(parseFloatSafe),
-					//Maybe String
-					path(["target", "value"])
-				),
-			}),
-			h("span.unit", {
-				title: x.unit.long,
-			}, x.unit.short),
-		])).concat([
-			h("div", {
 				style: {
-					"line-height": "2em",
-					"text-align": "center",
-					"font-size": "0.9em",
-					"cursor": "pointer",
+					"text-decoration": "underline",
 				},
 			}, [
-				h("span", {
-					onclick: compose(
+				model.areExtrasShown ? "hide extras" : "extras",
+			]),
+		]),
+		h("div .inputContainer", [
+			h("label", {}, "color"),
+			h("select",
+				{
+					onchange: compose(
 						map(run),
-						evthandler(["areExtrasShown"], model),
-						() => Maybe.Just(!model.areExtrasShown)
+						evthandler(["myBikes", model.currentTabIndex, "fillColor"], model),
+						path(["target", "value"])
 					),
-					style: {
-						"text-decoration": "underline",
-					},
-				}, [
-					model.areExtrasShown ? "hide extras" : "extras",
-				]),
-			]),
-			h("div .inputContainer", [
-				h("label", {}, "color"),
-				h("select",
-					{
-						onchange: compose(
-							map(run),
-							evthandler(["fillColor"], model),
-							path(["target", "value"])
-						),
-					},
-					[
-						{name: "black", code: "black"},
-						{name: "blue", code: "#228"},
-						{name: "red", code: "#B44"},
-					].map(c => h("option", {
-						value: c.code,
-					}, c.name))
+				},
+				COLORS.map(c => h("option", {
+					value: c.code,
+				}, c.name))
+			),
+		]),
+		h("div", [
+			h("select", {
+				disabled: model.allBikes.status == "busy",
+				onchange: compose(
+					map(print("select tab")),
+					chain(parseFloatSafe),
+					path(["target", "value"])
 				),
+			}, [
+				model.allBikes.list.map((x, i) => h("option", {
+					value: i,
+				}, x.name)),
 			]),
-		])
-	),
+		]),
+	]),
+	map(x => h("div .inputContainer", [
+		h("label", {}, (x.label || x.path.join(" "))),
+		h("input", {
+			type: "number",
+			step: 0.1,
+			value: x.formatForHumans(withDefault(0, path(x.path, model))),
+			readonly: x.readonly,
+			onfocus: compose(
+				map(run),
+				chain(evthandler(["guide"], model)),
+				map(Maybe.of),
+				//Maybe Guide
+				() => safe(identity, x.guide)
+				//undefined | Guide
+			),
+			onchange: compose(
+				map(run),
+				//Maybe IO
+				chain(evthandler(["myBikes", model.currentTabIndex].concat(x.path), model)),
+				//Maybe a
+				map(x.formatForCalculations),
+				//Maybe Float
+				chain(parseFloatSafe),
+				//Maybe String
+				path(["target", "value"])
+			),
+		}),
+		h("span.unit", {
+			title: x.unit.long,
+		}, x.unit.short),
+	])),
+	//List Obj
+	filter(x => !x.isExtra || model.areExtrasShown)
+	//List Obj
+)([
+	{
+		path: ["wheelbaseLen"],
+		label: "wheelbase",
+		formatForHumans: round,
+		formatForCalculations: safe(lt(
+			model.chainstayLen +
+			model.topTubeLen +
+			model.forkLen +
+			model.headTubeLen
+		)), //TODO improve validation
+		guide: lineThroughPoints(["frontHub", "rearHub"]),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["topTubeLen"],
+		label: "top tube",
+		formatForHumans: round,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+		readonly: true,
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["forkLen"],
+		label: "fork",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(4 * model.forkOffset)),
+		guide: lineThroughPoints(["frontHub", "forkStart"]),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["forkOffset"],
+		label: "fork offset",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["headTubeLen"],
+		label: "head tube",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(model.bottomTubeOffset)),
+		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["headTubeAngle"],
+		label: "head tube angle",
+		formatForHumans: compose(
+			round,
+			toDegrees,
+			add(-Math.PI)
+		),
+		formatForCalculations: compose(
+			map(add(Math.PI)),
+			map(toRadians),
+			chain(safe(lt(90))),
+			safe(gt(0))
+		),
+		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
+		unit: unit("degrees", "°"),
+	},
+	{
+		path: ["seatTubeLen"],
+		label: "seat tube",
+		formatForHumans: identity,
+		formatForCalculations: Maybe.Just,
+		guide: lineThroughPoints(["bb", "topTubeEnd"]),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["seatTubeAngle"],
+		label: "seat tube angle",
+		formatForHumans: compose(
+			round,
+			toDegrees,
+			add(-Math.PI)
+		),
+		formatForCalculations: compose(
+			map(add(Math.PI)),
+			map(toRadians),
+			chain(safe(lt(90))),
+			safe(gt(0))
+		),
+		unit: unit("degrees", "°"),
+	},
+	{
+		path: ["chainstayLen"],
+		label: "chainstay",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Just,
+		guide: lineThroughPoints(["bb", "rearHub"]),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["bbDropLen"],
+		label: "bb drop",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Just,
+		guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["reachLen"],
+		label: "reach",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Just,
+		guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["stackLen"],
+		label: "stack",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Just,
+		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
+		unit: unit("milimeters", "mm"),
+	},
+	{
+		path: ["crownHeight"],
+		label: "crown height",
+		formatForHumans: round,
+		formatForCalculations: Maybe.Nothing,
+		guide: lineThroughPoints(["headTubeStart", "forkStart"]),
+		readonly: true,
+		unit: unit("milimeters", "mm"),
+		isExtra: true,
+	},
+	{
+		path: ["seatTubeExtra"],
+		label: "seat tube padding",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(model.thickness)),
+		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
+		unit: unit("milimeters", "mm"),
+		isExtra: true,
+	},
+	{
+		path: ["topTubeOffset"],
+		label: "top tube offset in head tube",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
+		unit: unit("milimeters", "mm"),
+		isExtra: true,
+	},
 ])
-
-const changePropBy = (p, f) => compose(
-	//Maybe Object
-	merge(
-		flip(setPath([p]))
-	),
-	map(compose(
-		withDefault(undefined),
-		map(x => f(x)),
-		prop(p)
-	)),
-	branch
-)
 
 // createTree :: Model -> VTree
 const createTree = compose(
@@ -710,21 +705,52 @@ const createTree = compose(
 			topTubeLen: vectorLen(subPoints(x.topTubeStart, x.topTubeEnd)),
 		}, x),
 	]),
-	print("a"),
-	changePropBy("myBikes", map(pick(["name", "fillColor", "isCurrentTab"]))),
 	merge(assign),
 	fanout(
-		pick(["zoom", "pan", "guide", "myBikes"]),
-		compose(
-			withDefault({}),
-			map(omit(["isCurrentTab"])),
-			chain(find(propEq("isCurrentTab", true))),
-			path(["myBikes"])
-		)
+		x => x.myBikes[x.currentTabIndex],
+		identity
 	)
 )
 
-run(setModel({
+/*
+ *
+ * RUN
+ *
+ */
+
+// setAllBikes :: (Model, BikeModel) -> ()
+const setAllBikes = curry((model, bikes) => compose(
+	x => x.fork(
+		print("ERROR"),
+		() => {}
+	),
+	map(map(run)), //TODO UNSAFE!!
+	map(evthandler(["allBikes"], model)),
+	map(Maybe.Just),
+	map(assign({status: "done"})),
+	map(objOf("list")),
+	map(map(mapProps({
+		headTubeAngle: compose(add(Math.PI), toRadians),
+		seatTubeAngle: compose(add(Math.PI), toRadians),
+		fillColor: COLORS[0].code,
+	})))
+)(bikes))
+
+compose(
+	map(run),
+	x => x.toArray(),
+	fanout(
+		map(
+			flip(setAllBikes)(listBikes())
+		),
+		compose(
+			chain(x => replaceDomWith("#root", x)),
+			map(vdomCreate),
+			map(createTree)
+		)
+	),
+	setModel
+)({
 	myBikes: [{
 		bbDropLen: 78,
 		chainstayLen: 460,
@@ -742,25 +768,16 @@ run(setModel({
 		stackLen: 588,
 		reachLen: 389.3,
 		thickness: 15,
-		fillColor: "black",
-		isCurrentTab: true,
+		fillColor: COLORS[0].code,
 	}],
+	allBikes: {
+		status: "busy",
+		list: [],
+	},
+	currentTabIndex: 0,
 	zoom: 0.5,
 	pan: point(200, 300),
 	guide: lineThroughPoints([]),
-}))
+})
 
-run(replaceDomWith(
-	"#root",
-	vdomCreate(createTree(getModel()))
-))
-
-print("printing", Maybe.Just(3))
 inspect("inspecting", Maybe.Just(3))
-
-listBikes()
-	.map(map(mapProps({
-		headTubeAngle: compose(add(Math.PI), toRadians),
-		seatTubeAngle: compose(add(Math.PI), toRadians),
-	})))
-	.fork(print("couldn't retrieve list of bicycles from db"), print("result") )

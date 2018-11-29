@@ -1,7 +1,9 @@
 {
 	"globals": {
 		"console": true,
-		"document": true
+		"document": true,
+		"process": true,
+		"XMLHttpRequest": true
 	},
 	"parserOptions": {
 		"sourceType": "module"

@@ -3,6 +3,7 @@ import Async from "crocks/Async"
 const KEY = process.env.DB_KEY
 const BIKES_API = "https://bicycles-c170.restdb.io/rest/bikes"
 
+// request :: (String, String, Object) -> Async RawBikeModel
 const request = (url, method, data) => Async((reject, resolve) => {
 	let xhr = new XMLHttpRequest();
 	//xhr.withCredentials = true;
@@ -31,7 +32,7 @@ const request = (url, method, data) => Async((reject, resolve) => {
 })
 
 const listBikes = () => request(BIKES_API, "GET", null)
-const createBike = data => request(BIKES_API, "GET", data)
+const createBike = data => request(BIKES_API, "POST", data)
 
 export {
 	createBike,
