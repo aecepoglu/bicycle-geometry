@@ -7,6 +7,11 @@
 	[ ] show error on bad input (text instead of number)
 	[ ] show error on impossible measurements
 		[ ] show warning on bad crown angle
-[ ] add combobox for selecting between bicycles
+[o] add combobox for selecting between bicycles
 [ ] save bicycles to DB
+[o] multiple bicycles
+	[o] add new tabs
+	[o] switch between tabs
+	[ ] close tabs
+	[ ] show ghosts
 [ ] improve guide definitions

@@ -139,6 +139,11 @@ const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 // mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
 const mergeListsBy = f => (list1, list2) => list1.map((_, i) => f(list1[i], list2[i]))
 
+// showConfirmDialog :: String -> a -> Maybe a
+const showConfirmDialog = text => a => window.confirm(text) ?
+	Maybe.Just(a) :
+	Maybe.Nothing(a)
+
 Array.of = x => [x]
 
 const COLORS = [
@@ -147,12 +152,8 @@ const COLORS = [
 	{name: "red", code: "#B44"},
 ]
 
+// round :: Number -> Number
 const round = toFixed(10)
-
-// changeModel :: [String] -> Model -> a -> Model
-const changeModel = curry((path, model, val) => {
-	return setPath(path, val, model)
-})
 
 const svgdp = op => p => `${op}${round(p.x)} ${round(p.y)}`
 
@@ -175,13 +176,13 @@ const buildPolygonPath = compose(
 			map(List),
 			map(svgdp("M")),
 			chain(head)
+			//TODO check that input is a valid style for 'svg path'
 		),
 		compose(
 			map(map(svgdp("L"))),
 			chain(tail)
 		)
 	)),
-	//TODO improvement: assert style is an acceptable style
 	fanout(prop("style"), prop("list"))
 )
 
@@ -380,35 +381,87 @@ const createBicycleSvg = compose(
 	}
 )
 
-// evthandler :: Maybe a -> Maybe IO
-const evthandler = (attrpath, model) => compose(
-	//Maybe IO Node
-	map(chain(domPatch("#root"))),
-	//Maybe IO Diff
-	map(map(d => domDiff(createTree(model))(d))), //not preloading to avoid infinite loop
-	//Maybe IO VTree
-	map(map(createTree)),
-	//Maybe IO Model
-	map(setModel),
-	//Maybe Model
-	map(changeModel(attrpath, model))
-	//Maybe a
-)
-
 const unit = (long, short) => ({long, short})
 
+// renderModel :: Model -> Model -> IO something
+const updateModelAndRender = oldmodel => compose(
+	//IO something /*TODO what is something?*/
+	chain(domPatch("#root")),
+	//IO Diff
+	map(d => domDiff(createTree(oldmodel))(d)), //not preloading to avoid infinite loop
+	//IO VTree
+	map(createTree),
+	//IO Model
+	setModel
+)
+
+// setPath2 :: [String|Number] -> Obj -> a -> Obj
+const setPath2 = (a, b) => c => setPath(a, c, b)
+
+// updateForSetPath :: ([String|Number], Model) -> a -> Model
+const updateForSetPath = (attrpath, model) => compose(
+	setPath2(attrpath, model)
+)
+
+// updateForAddNewTab :: Model -> () -> Model
+const updateForAddingNewTab = model => compose(
+	setPath(["currentTabIndex"], model.myBikes.length),
+	setPath([
+		"myBikes",
+		model.myBikes.length,
+	],
+		model.myBikes[model.currentTabIndex]
+	),
+	() => model
+)
+
+// (Model, [String|Number]) -> a -> Maybe b
+const fromArrayAt = (model, list) => compose(
+	flip(path)(model),
+	flip(concat)(list),
+	Array.of
+)
+
+// updateForChangingTabs :: Model -> Number -> Model
+const updateForChangingTabs = model => compose(
+	withDefault({}),
+	merge(liftA2(assign)),
+	fanout(
+		compose(
+			Maybe.of,
+			setPath2(["currentTabIndex"], model)
+		),
+		fromArrayAt(model, ["myBikes"]) //Bike
+	)
+)
+
+// updateForChangingTemplates :: Model -> Number -> Model
+const updateForChangingTemplates = model => compose(
+	setPath(["isDirty"], false),
+	setPath2(["myBikes", model.currentTabIndex], model),
+	withDefault({}),
+	merge(liftA2(assign)),
+	fanout(
+		compose(
+			Maybe.of,
+			objOf("template")
+		),
+		fromArrayAt(model, ["allBikes", "list"])
+	)
+)
+
 // showTabs :: String -> [BikeModel] -> VTree
-const showTabs = (name, activeTabIndex) => compose(
+const showTabs = (name, activeTabIndex, {ontabadd, ontabchange}) => compose(
 	x => h(name, x),
 	concat([
-		h("span .tabButton", ["+"]),
+		h("span .tabButton", {
+			onclick: ontabadd,
+		}, ["+"]),
 	]),
 	map(x => h(`span .tabButton ${x.index == activeTabIndex ? ".active" : ""}`, {
 		style: { color: x.color },
 		title: x.name,
-		onclick: () => {
-			console.log(x.index)
-		},
+		onclick: () => ontabchange(x.index),
 	}, `•${x.index}`)),
 	merge(mergeListsBy(assign)),
 	fanout(
@@ -424,9 +477,62 @@ const showTabs = (name, activeTabIndex) => compose(
 // createInputsTree :: Model -> VTree
 const createInputsTree = model => compose(
 	x => h("div .inputs .tabbedPanel", x),
-	cons(showTabs("div .tabs", model.currentTabIndex)(model.myBikes)),
+	cons(
+		showTabs("div .tabs", model.currentTabIndex, {
+			ontabadd: compose(
+				run,
+				updateModelAndRender(model),
+				updateForAddingNewTab(model)
+			),
+			ontabchange: compose(
+				run,
+				updateModelAndRender(model),
+				updateForChangingTabs(model)
+			),
+		})(model.myBikes)
+	),
 	Array.of,
 	x => h("div .panel", x),
+	flip(concat)([
+		h("div .templates .zebra", [
+			h("div .title", "Template"),
+			h("select", {
+				disabled: model.allBikes.status == "busy",
+				onchange: compose(
+					map(run),
+					map(updateModelAndRender(model)),
+					map(updateForChangingTemplates(model)),
+					chain(
+						(model.isDirty && model.showDirtyConfirmation) ?
+							showConfirmDialog("You will lose changes made to this bike.\nAre you sure?") :
+							Maybe.Just
+					),
+					chain(parseFloatSafe),
+					path(["target", "value"])
+				),
+			}, cons(
+				model.template === "custom" ?
+					h("option", {
+						value: "custom",
+						selected: "selected",
+						disabled: true,
+					}, "custom") :
+					undefined,
+				model.allBikes.list.map((x, i) => h("option", {
+					value: i,
+					selected: model.template === i && "selected",
+				}, x.name))
+			)),
+			(model.allBikes.status != "done" ?
+				h("span", {
+					title: model.allBikes.status,
+				}, "⌛") :
+				undefined
+			),
+			h("p", "template " + model.template),
+			h("p", "isDirty " + model.isDirty),
+		]),
+	]),
 	concat([
 		h("div", {
 			style: {
@@ -438,9 +544,10 @@ const createInputsTree = model => compose(
 		}, [
 			h("span", {
 				onclick: compose(
-					map(run),
-					evthandler(["areExtrasShown"], model),
-					() => Maybe.Just(!model.areExtrasShown)
+					run,
+					updateModelAndRender(model),
+					updateForSetPath(["areExtrasShown"], model),
+					() => !model.areExtrasShown
 				),
 				style: {
 					"text-decoration": "underline",
@@ -449,13 +556,14 @@ const createInputsTree = model => compose(
 				model.areExtrasShown ? "hide extras" : "extras",
 			]),
 		]),
-		h("div .inputContainer", [
+		h("div .inputContainer .zebra", [
 			h("label", {}, "color"),
 			h("select",
 				{
 					onchange: compose(
 						map(run),
-						evthandler(["myBikes", model.currentTabIndex, "fillColor"], model),
+						map(updateModelAndRender(model)),
+						map(updateForSetPath(["myBikes", model.currentTabIndex, "fillColor"], model)),
 						path(["target", "value"])
 					),
 				},
@@ -464,22 +572,8 @@ const createInputsTree = model => compose(
 				}, c.name))
 			),
 		]),
-		h("div", [
-			h("select", {
-				disabled: model.allBikes.status == "busy",
-				onchange: compose(
-					map(print("select tab")),
-					chain(parseFloatSafe),
-					path(["target", "value"])
-				),
-			}, [
-				model.allBikes.list.map((x, i) => h("option", {
-					value: i,
-				}, x.name)),
-			]),
-		]),
 	]),
-	map(x => h("div .inputContainer", [
+	map(x => h("div .inputContainer .zebra", [
 		h("label", {}, (x.label || x.path.join(" "))),
 		h("input", {
 			type: "number",
@@ -488,8 +582,8 @@ const createInputsTree = model => compose(
 			readonly: x.readonly,
 			onfocus: compose(
 				map(run),
-				chain(evthandler(["guide"], model)),
-				map(Maybe.of),
+				map(updateModelAndRender(model)),
+				map(updateForSetPath(["guide"], model)),
 				//Maybe Guide
 				() => safe(identity, x.guide)
 				//undefined | Guide
@@ -497,9 +591,12 @@ const createInputsTree = model => compose(
 			onchange: compose(
 				map(run),
 				//Maybe IO
-				chain(evthandler(["myBikes", model.currentTabIndex].concat(x.path), model)),
+				map(updateModelAndRender(model)),
+				map(setPath(["myBikes", model.currentTabIndex, "template"], "custom")),
+				map(setPath(["isDirty"], true)),
+				map(updateForSetPath(["myBikes", model.currentTabIndex].concat(x.path), model)),
 				//Maybe a
-				map(x.formatForCalculations),
+				chain(x.formatForCalculations),
 				//Maybe Float
 				chain(parseFloatSafe),
 				//Maybe String
@@ -724,9 +821,9 @@ const setAllBikes = curry((model, bikes) => compose(
 		print("ERROR"),
 		() => {}
 	),
-	map(map(run)), //TODO UNSAFE!!
-	map(evthandler(["allBikes"], model)),
-	map(Maybe.Just),
+	map(run), //UNSAFE
+	map(updateModelAndRender(model)),
+	map(updateForSetPath(["allBikes"], model)),
 	map(assign({status: "done"})),
 	map(objOf("list")),
 	map(map(mapProps({
@@ -740,9 +837,7 @@ compose(
 	map(run),
 	x => x.toArray(),
 	fanout(
-		map(
-			flip(setAllBikes)(listBikes())
-		),
+		map(flip(setAllBikes)(listBikes())),
 		compose(
 			chain(x => replaceDomWith("#root", x)),
 			map(vdomCreate),
@@ -769,6 +864,7 @@ compose(
 		reachLen: 389.3,
 		thickness: 15,
 		fillColor: COLORS[0].code,
+		template: "custom",
 	}],
 	allBikes: {
 		status: "busy",
@@ -778,6 +874,8 @@ compose(
 	zoom: 0.5,
 	pan: point(200, 300),
 	guide: lineThroughPoints([]),
+	isDirty: false,
+	showDirtyConfirmation: true,
 })
 
 inspect("inspecting", Maybe.Just(3))
