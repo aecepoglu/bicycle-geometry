@@ -63,6 +63,31 @@ const setModel = x => new IO(() => myModel.set(x))
 
 const ALT_COLOR = "grey"
 
+const COLORS = [
+	{name: "black", code: "black"},
+	{name: "blue", code: "#228"},
+	{name: "red", code: "#B44"},
+]
+
+const TEMPLATE_FIELDS = [
+	"bbDropLen",
+	"chainstayLen",
+	"forkLen",
+	"forkOffset",
+	"headTubeLen",
+	"headTubeAngle",
+	"topTubeOffset",
+	"topTubeLen",
+	"topTubeAngle",
+	"seatTubeLen",
+	"seatTubeExtra",
+	"seatTubeAngle",
+	"wheelbaseLen",
+	"stackLen",
+	"reachLen",
+	"thickness",
+]
+
 // $ :: String -> IO DOM
 const $ = sel => IO.of(document.querySelector(sel))
 
@@ -93,6 +118,9 @@ const svg = (a, b, c) => h(
 	c
 )
 
+/*
+ * Mathematical Operations */
+
 // add :: Number -> Number -> Number
 const add = curry((a, b) => a + b)
 // multiply :: Number -> Number -> Number
@@ -109,14 +137,36 @@ const toDegrees = multiply(180 / Math.PI)
 
 const toFixed = p => x => Math.round(x * p) / p
 
+// round :: Number -> Number
+const round = toFixed(10)
+
 // TODO use crocks/Maybe/safe instead
 // parseFloatSafe :: String -> Maybe Float
 const parseFloatSafe = map(x => Number.isNaN(x) ? Maybe.Nothing() : Maybe.Just(x), parseFloat)
 
+/*
+ * Array Operations */
+
 // join :: String -> List String -> String
 const join = t => l => l.join(t)
+
+// append :: a -> [a] -> [a]
+const append = a => concat([a])
+
+// (Object, [String|Number]) -> Number -> Maybe a
+const fromArrayAt = (model, list) => compose(
+	flip(path)(model),
+	flip(concat)(list),
+	Array.of
+)
+
 // spaced :: List String -> String
 const spaced = join(" ")
+
+Array.of = x => [x]
+
+/*
+ * Other Operations */
 
 // point :: (Number, Number) -> Point
 const point = (x, y) => ({x: x, y: y})
@@ -135,6 +185,11 @@ const print = curry((prefix, x) => {
 	return x
 })
 
+const Unit = (long, short) => ({long, short})
+
+// setPath2 :: [String|Number] -> Obj -> a -> Obj
+const setPath2 = (a, b) => c => setPath(a, c, b)
+
 const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 
 // mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
@@ -145,16 +200,11 @@ const showConfirmDialog = text => a => window.confirm(text) ?
 	Maybe.Just(a) :
 	Maybe.Nothing(a)
 
-Array.of = x => [x]
+// LineDef :: String -> List Point -> LineDef
+const LineDef = curry((style, list) => ({style: style, list: list}))
 
-const COLORS = [
-	{name: "black", code: "black"},
-	{name: "blue", code: "#228"},
-	{name: "red", code: "#B44"},
-]
-
-// round :: Number -> Number
-const round = toFixed(10)
+/*
+ * SVG Operations */
 
 const svgdp = op => p => `${op}${round(p.x)} ${round(p.y)}`
 
@@ -220,13 +270,10 @@ const drawGuide = model => compose(
 	runWith(model)
 )
 
-// lineDef :: String -> List Point -> LineDef
-const lineDef = curry((style, list) => ({style: style, list: list}))
-
 // Guide :: Reader Model -> Maybe List LineDef
 // lineThroughPoints :: [String] -> Guide
 const lineThroughPoints = compose(
-	map(map(map(lineDef("straight")))),
+	map(map(map(LineDef("straight")))),
 	//Reader Model -> Maybe List List Point
 	map(map(List.of)),
 	//Reader Model -> Maybe List Point
@@ -249,11 +296,11 @@ const lineThroughPoints = compose(
 const lineFromPointToReferenceLine = (n1, k, n2) => compose(
 	//Reader Model -> Maybe List (LineDef)
 	map(map(({0: pa, 1: pb}) => List([
-		lineDef("straight", List([
+		LineDef("straight", List([
 			pa,
 			assign({ [k]: pa[k] }, pb),
 		])),
-		lineDef("dashed", List([
+		LineDef("dashed", List([
 			pb,
 			assign({ [k]: pa[k] - 0.5 * (pb[k] - pa[k]) }, pb),
 		])),
@@ -382,8 +429,6 @@ const createBicycleSvg = compose(
 	}
 )
 
-const unit = (long, short) => ({long, short})
-
 // renderModel :: Model -> Model -> IO something
 const updateModelAndRender = oldmodel => compose(
 	//IO something /*TODO what is something?*/
@@ -393,15 +438,8 @@ const updateModelAndRender = oldmodel => compose(
 	//IO VTree
 	map(createTree),
 	//IO Model
-	setModel
-)
-
-// setPath2 :: [String|Number] -> Obj -> a -> Obj
-const setPath2 = (a, b) => c => setPath(a, c, b)
-
-// updateForSetPath :: ([String|Number], Model) -> a -> Model
-const updateForSetPath = (attrpath, model) => compose(
-	setPath2(attrpath, model)
+	setModel,
+	print("rendering")
 )
 
 // updateForAddNewTab :: Model -> () -> Model
@@ -414,13 +452,6 @@ const updateForAddingNewTab = model => compose(
 		model.myBikes[model.currentTabIndex]
 	),
 	() => model
-)
-
-// (Model, [String|Number]) -> a -> Maybe b
-const fromArrayAt = (model, list) => compose(
-	flip(path)(model),
-	flip(concat)(list),
-	Array.of
 )
 
 // updateForChangingTabs :: Model -> Number -> Model
@@ -463,6 +494,7 @@ const updateForRemovingTabs = model => compose(
 const updateForChangingTemplates = model => compose(
 	setPath2(["myBikes", model.currentTabIndex], model),
 	withDefault({}),
+	map(templateToBike),
 	merge(liftA2(assign)),
 	fanout(
 		compose(
@@ -470,11 +502,27 @@ const updateForChangingTemplates = model => compose(
 			setPath(["isDirty"], false),
 			objOf("template")
 		),
-		fromArrayAt(model, ["allBikes", "list"])
+		compose(
+			templateToBike,
+			fromArrayAt(model, ["templates", "list"])
+		)
 	)
 )
 
-// showTabs :: String -> [BikeModelWithIndex] -> VTree
+// putIndexes :: [{}] -> [{index: Number}]
+const putIndexes = compose(
+	merge(mergeListsBy(assign)),
+	fanout(
+		compose(
+			map(objOf("index")),
+			map(parseInt),
+			Object.keys
+		),
+		identity
+	)
+)
+
+// showTabs :: String -> [BikeModel] -> VTree
 const showTabs = (name, activeTabIndex, {ontabadd, ontabchange}) => compose(
 	x => h(name, x),
 	concat([
@@ -491,16 +539,33 @@ const showTabs = (name, activeTabIndex, {ontabadd, ontabchange}) => compose(
 	}, [
 		`•${x.index}`,
 	])),
-	merge(mergeListsBy(assign)),
-	fanout(
-		compose(
-			map(objOf("index")),
-			map(parseInt),
-			Object.keys
-		),
-		identity
-	)
+	putIndexes
 )
+
+const heditable = (bool, h1, h2, h3, h4) => compose(
+	x => h("div .editable", x),
+	map(f => f()),
+	x => x ? [h2, h4] : [h1, h3]
+)(bool)
+
+// bikeToTemplate :: Bike -> Template
+const bikeToTemplate = pick(TEMPLATE_FIELDS)
+
+// rawTemplateToTemplate :: RawTemplate -> Template
+const rawTemplateToTemplate = mapProps({
+	headTubeAngle: compose(add(Math.PI), toRadians),
+	seatTubeAngle: compose(add(Math.PI), toRadians),
+})
+
+const templateToBike = pick(TEMPLATE_FIELDS)
+
+// appendToPath :: [String|Number] -> a -> Object -> Object
+const appendToPath = curry((p, a, o) => compose(
+	withDefault(o),
+	map(setPath2(p, o)),
+	map(append(a)),
+	path(p)
+)(o))
 
 // createInputsTree :: Model -> VTree
 const createInputsTree = model => compose(
@@ -535,41 +600,102 @@ const createInputsTree = model => compose(
 				}, "×")
 				: undefined,
 			h("div .title", "Template"),
-			h("select", {
-				disabled: model.allBikes.status == "busy",
-				onchange: compose(
-					map(run),
-					map(updateModelAndRender(model)),
-					map(updateForChangingTemplates(model)),
-					chain(
-						(model.isDirty && model.showDirtyConfirmation) ?
-							showConfirmDialog("You will lose changes made to this bike.\nAre you sure?") :
-							Maybe.Just
+			heditable(
+				model.isInEdit === true,
+				() => h("select", {
+					disabled: model.templates.status == "busy",
+					onchange: compose(
+						map(run),
+						map(updateModelAndRender(model)),
+						map(updateForChangingTemplates(model)),
+						chain(
+							(model.isDirty && model.showDirtyConfirmation) ?
+								showConfirmDialog("You will lose changes made to this bike.\nAre you sure?") :
+								Maybe.Just
+						),
+						chain(parseFloatSafe),
+						path(["target", "value"])
 					),
-					chain(parseFloatSafe),
-					path(["target", "value"])
-				),
-			}, cons(
-				model.template === "custom" ?
-					h("option", {
-						value: "custom",
-						selected: "selected",
-						disabled: true,
-					}, "custom") :
-					undefined,
-				model.allBikes.list.map((x, i) => h("option", {
-					value: i,
-					selected: model.template === i && "selected",
-				}, x.name))
-			)),
-			(model.allBikes.status != "done" ?
-				h("span", {
-					title: model.allBikes.status,
-				}, "⌛") :
-				undefined
+				}, cons(
+					model.template === "custom"
+						?  h("option", {
+							value: "custom",
+							selected: "selected",
+							disabled: true,
+						}, "custom")
+						: undefined,
+					map(x => h("option", {
+							value: x.index,
+							selected: model.template == x.index && "selected",
+						}, x.name),
+						putIndexes(model.templates.list)
+					)
+				)),
+				() => h("input", {
+					value: model.newTemplateName,
+					onfocus: function() {
+						this.select(); //ughhh... :/
+					},
+					onchange: compose(
+						map(run),
+						map(updateModelAndRender(model)),
+						map(setPath2(["myBikes", model.currentTabIndex, "newTemplateName"], model)),
+						path(["target", "value"])
+					),
+				}),
+				() => (model.isDirty && model.template == "custom")
+					? h("span .clickable", {
+						title: "give this frame a name",
+						onclick: compose(
+							run,
+							updateModelAndRender(model),
+							setPath(["myBikes", model.currentTabIndex, "newTemplateName"], "unnamed bike"),
+							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
+							() => true
+						),
+					}, "edit")
+					: undefined,
+				() => h("span", [
+					h("span .clickable", {
+						onclick: compose(
+							map(run),
+							map(updateModelAndRender(model)),
+							//Maybe Model'''
+							map(setPath(["myBikes", model.currentTabIndex, "isDirty"], false)),
+							map(setPath(["myBikes", model.currentTabIndex, "template"], model.templates.list.length)),
+							chain(safe(() => model.templates.list.map(x => x.name).includes(model.newTemplateName) !== true)),
+							//Maybe Model''
+							merge(liftA2(appendToPath(["templates", "list"]))),
+							//Pair (Maybe Template) (Maybe Model')
+							fanout(
+								compose(
+									map(setPath(["name"], model.newTemplateName)),
+									map(bikeToTemplate),
+									path(["myBikes", model.currentTabIndex])
+								),
+								Maybe.Just
+							),
+							//Model'
+							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
+							() => false
+						),
+					}, "save"),
+					h("span .clickable", {
+						onclick: compose(
+							run,
+							updateModelAndRender(model),
+							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
+							() => false
+						),
+					}, "cancel"),
+				])
 			),
-			h("p", "template " + model.template),
-			h("p", "isDirty " + model.isDirty),
+			(model.templates.status != "done"
+				?  h("span", {
+					title: model.templates.status,
+				}, "⌛")
+				: undefined
+			),
 		]),
 	]),
 	concat([
@@ -585,7 +711,7 @@ const createInputsTree = model => compose(
 				onclick: compose(
 					run,
 					updateModelAndRender(model),
-					updateForSetPath(["areExtrasShown"], model),
+					setPath2(["areExtrasShown"], model),
 					() => !model.areExtrasShown
 				),
 				style: {
@@ -602,7 +728,7 @@ const createInputsTree = model => compose(
 					onchange: compose(
 						map(run),
 						map(updateModelAndRender(model)),
-						map(updateForSetPath(["myBikes", model.currentTabIndex, "fillColor"], model)),
+						map(setPath2(["myBikes", model.currentTabIndex, "fillColor"], model)),
 						path(["target", "value"])
 					),
 				},
@@ -622,7 +748,7 @@ const createInputsTree = model => compose(
 			onfocus: compose(
 				map(run),
 				map(updateModelAndRender(model)),
-				map(updateForSetPath(["guide"], model)),
+				map(setPath2(["guide"], model)),
 				//Maybe Guide
 				() => safe(identity, x.guide)
 				//undefined | Guide
@@ -633,7 +759,7 @@ const createInputsTree = model => compose(
 				map(updateModelAndRender(model)),
 				map(setPath(["myBikes", model.currentTabIndex, "isDirty"], true)),
 				map(setPath(["myBikes", model.currentTabIndex, "template"], "custom")),
-				map(updateForSetPath(["myBikes", model.currentTabIndex].concat(x.path), model)),
+				map(setPath2(["myBikes", model.currentTabIndex].concat(x.path), model)),
 				chain(x.formatForCalculations),
 				chain(parseFloatSafe),
 				path(["target", "value"])
@@ -658,7 +784,7 @@ const createInputsTree = model => compose(
 			model.headTubeLen
 		)), //TODO improve validation
 		guide: lineThroughPoints(["frontHub", "rearHub"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["topTubeLen"],
@@ -667,7 +793,7 @@ const createInputsTree = model => compose(
 		formatForCalculations: safe(gt(0)),
 		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
 		readonly: true,
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["forkLen"],
@@ -675,7 +801,7 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(4 * model.forkOffset)),
 		guide: lineThroughPoints(["frontHub", "forkStart"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["forkOffset"],
@@ -683,7 +809,7 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
 		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["headTubeLen"],
@@ -691,7 +817,7 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.bottomTubeOffset)),
 		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["headTubeAngle"],
@@ -708,7 +834,7 @@ const createInputsTree = model => compose(
 			safe(gt(0))
 		),
 		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
-		unit: unit("degrees", "°"),
+		unit: Unit("degrees", "°"),
 	},
 	{
 		path: ["seatTubeLen"],
@@ -716,7 +842,7 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: Maybe.Just,
 		guide: lineThroughPoints(["bb", "topTubeEnd"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["seatTubeAngle"],
@@ -732,7 +858,7 @@ const createInputsTree = model => compose(
 			chain(safe(lt(90))),
 			safe(gt(0))
 		),
-		unit: unit("degrees", "°"),
+		unit: Unit("degrees", "°"),
 	},
 	{
 		path: ["chainstayLen"],
@@ -740,7 +866,7 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: lineThroughPoints(["bb", "rearHub"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["bbDropLen"],
@@ -748,7 +874,7 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["reachLen"],
@@ -756,7 +882,7 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["stackLen"],
@@ -764,7 +890,7 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 	},
 	{
 		path: ["crownHeight"],
@@ -773,7 +899,7 @@ const createInputsTree = model => compose(
 		formatForCalculations: Maybe.Nothing,
 		guide: lineThroughPoints(["headTubeStart", "forkStart"]),
 		readonly: true,
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
 	{
@@ -782,7 +908,7 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.thickness)),
 		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
 	{
@@ -791,7 +917,7 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
 		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
-		unit: unit("milimeters", "mm"),
+		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
 ])
@@ -851,17 +977,13 @@ const createTree = compose(
  *
  */
 
-// setAllBikes :: (Model, BikeModel) -> ()
-const setAllBikes = curry((model, bikes) => compose(
+// setTemplates :: (Model, BikeModel) -> ()
+const setTemplates = curry((model, bikes) => compose(
 	updateModelAndRender(model),
-	updateForSetPath(["allBikes"], model),
+	setPath2(["templates"], model),
 	assign({status: "done"}),
 	objOf("list"),
-	map(mapProps({
-		headTubeAngle: compose(add(Math.PI), toRadians),
-		seatTubeAngle: compose(add(Math.PI), toRadians),
-		fillColor: COLORS[0].code,
-	}))
+	map(rawTemplateToTemplate)
 )(bikes))
 
 compose(
@@ -874,7 +996,7 @@ compose(
 				() => {}
 			)),
 			map(run),
-			map(y => setAllBikes(getModel(), y)), //getModel() explicitly instead of use the piped Model because it may be too old
+			map(y => setTemplates(getModel(), y)), //getModel() explicitly instead of use the piped Model because it may be too old
 			listBikes,
 			() => undefined
 		),
@@ -907,7 +1029,7 @@ compose(
 		template: "custom",
 		isDirty: false,
 	}],
-	allBikes: {
+	templates: {
 		status: "busy",
 		list: [],
 	},
@@ -919,3 +1041,7 @@ compose(
 })
 
 inspect("inspecting", Maybe.Just(3))
+
+console.log(
+	append(3)([1,2])
+)
