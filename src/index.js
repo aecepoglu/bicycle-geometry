@@ -125,6 +125,8 @@ const svg = (a, b, c) => h(
 	c
 )
 
+const h2 = curryN(2, h);
+
 /*
  * Mathematical Operations */
 
@@ -153,7 +155,7 @@ const round = toFixed(10)
 const parseFloatSafe = map(x => Number.isNaN(x) ? Maybe.Nothing() : Maybe.Just(x), parseFloat)
 
 /*
- * Array Operations */
+ * Array, Object Operations */
 
 // join :: String -> [String] -> String
 const join = t => l => l.join(t)
@@ -169,9 +171,40 @@ const fromArrayAt = (model, list) => compose(
 	Array.of
 )
 
+// mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
+const mergeListsBy = f => (list1, list2) => list1.map((_, i) => f(list1[i], list2[i]))
+
+// putIndexes :: [{}] -> [{index: Number}]
+const putIndexes = compose(
+	merge(mergeListsBy(assign)),
+	fanout(
+		compose(
+			map(objOf("index")),
+			map(parseInt),
+			Object.keys
+		),
+		identity
+	)
+)
+
+// changePath :: [String|Number] -> (a -> b) -> Object -> Object
+const changePath = curry((dest, f, O) => compose(
+	withDefault(O),
+	map(setPath2(dest, O)),
+	map(f),
+	path(dest)
+)(O))
+
 // spaced :: List String -> String
 const spaced = join(" ")
 
+// removeFromArray :: (Number, [a]) -> [a]
+const removeFromArray = curry((pos, array) => concat(
+	array.slice(0, pos),
+	array.slice(pos + 1)
+))
+
+// Array.of :: a -> [a]
 Array.of = x => [x]
 
 /*
@@ -201,9 +234,6 @@ const setPath2 = (a, b) => c => setPath(a, c, b)
 
 const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 
-// mergeListsBy :: ((a, b) -> c) -> ([a], [b]) -> [c]
-const mergeListsBy = f => (list1, list2) => list1.map((_, i) => f(list1[i], list2[i]))
-
 // showConfirmDialog :: String -> a -> Maybe a
 const showConfirmDialog = text => a => window.confirm(text) ?
 	Maybe.Just(a) :
@@ -211,6 +241,31 @@ const showConfirmDialog = text => a => window.confirm(text) ?
 
 // LineDef :: String -> List Point -> LineDef
 const LineDef = curry((style, list) => ({style: style, list: list}))
+
+// hWhen :: (a -> Bool) -> (a -> b) -> a -> (b | undefined)
+const hWhen = curryN(3, (a, b, d) => ifElse(a, b, () => undefined, d));
+
+const h_ = (...args) => () => h(...args)
+
+/*
+ * Data Transformations Within Model
+ */
+
+// bikeToTemplate :: Bike -> Template
+const bikeToTemplate = pick(TEMPLATE_FIELDS)
+// templateToBike :: Template -> Bike
+const templateToBike = pick(TEMPLATE_FIELDS)
+
+// rawTemplateToTemplate :: RawTemplate -> Template
+const rawTemplateToTemplate = mapProps({
+	headTubeAngle: compose(add(Math.PI), toRadians),
+	seatTubeAngle: compose(add(Math.PI), toRadians),
+})
+// rawTemplateToTemplate :: Template -> RawTemplate
+const templateToRawTemplate  = mapProps({
+	headTubeAngle: compose(toDegrees, add(-Math.PI)),
+	seatTubeAngle: compose(toDegrees, add(-Math.PI)),
+})
 
 /*
  * SVG Operations */
@@ -450,8 +505,15 @@ const updateModelAndRender = oldmodel => compose(
 	setModel
 )
 
+// composeUpdate :: (Model, *Function) -> IO Function
+const composeUpdate = model => (...fs) => compose(
+	run,
+	updateModelAndRender(model),
+	...fs
+)
+
 // updateForAddNewTab :: Model -> () -> Model
-const updateForAddingNewTab = model => compose(
+const updateForAddingNewTab = model => composeUpdate(model)(
 	setPath(["currentTabIndex"], model.myBikes.length),
 	setPath([
 		"myBikes",
@@ -463,7 +525,7 @@ const updateForAddingNewTab = model => compose(
 )
 
 // updateForChangingTabs :: Model -> Number -> Model
-const updateForChangingTabs = model => compose(
+const updateForChangingTabs = model => composeUpdate(model)(
 	withDefault({}),
 	merge(liftA2(assign)),
 	fanout(
@@ -475,20 +537,8 @@ const updateForChangingTabs = model => compose(
 	)
 )
 
-const slice = (i, count) => as => as.slice(i, count)
-
-// removeFromArray :: (Number, [a]) -> [a]
-const removeFromArray = curry((pos, array) => merge(
-	concat,
-	fanout(
-		slice(0, pos),
-		slice(pos + 1),
-		array
-	)
-))
-
 // updateForRemovingTabs :: Model -> Number -> Model
-const updateForRemovingTabs = model => compose(
+const updateForRemovingTabs = model => composeUpdate(model)(
 	withDefault(model),
 	map(setPath(["currentTabIndex"], 0)),
 	map(setPath2(["myBikes"], model)),
@@ -499,7 +549,7 @@ const updateForRemovingTabs = model => compose(
 )
 
 // updateForChangingTemplates :: Model -> Number -> Model
-const updateForChangingTemplates = model => compose(
+const updateForChangingTemplates = model => composeUpdate(model)(
 	setPath2(["myBikes", model.currentTabIndex], model),
 	withDefault({}),
 	merge(liftA2(assign)),
@@ -516,67 +566,32 @@ const updateForChangingTemplates = model => compose(
 	)
 )
 
-// putIndexes :: [{}] -> [{index: Number}]
-const putIndexes = compose(
-	merge(mergeListsBy(assign)),
-	fanout(
-		compose(
-			map(objOf("index")),
-			map(parseInt),
-			Object.keys
-		),
-		identity
-	)
+const updateForTogglingTemplateRename = model => composeUpdate(model)(
+	changePath(["myBikes", model.currentTabIndex], assign({
+		newTemplateName: "unnamed bike",
+		isInEdit: true,
+	})),
+	() => model
 )
 
-// showTabs :: String -> [BikeModel] -> VTree
+// showTabs :: (String, Number, Object) -> [BikeModel] -> VTree
 const showTabs = (name, activeTabIndex, {ontabadd, ontabchange}) => compose(
-	x => h(name, x),
+	h2(name),
 	concat([
 		h("span .clickable .button", {
 			onclick: ontabadd,
 			title: "add new bike",
 		}, "+"),
 	]),
-	x => [h("span .realTabs", x)],
+	Array.of,
+	h2("span .realTabs"),
 	map(x => h(`span .clickable .button ${x.index == activeTabIndex ? ".active" : ""}`, {
 		style: { color: x.color },
 		title: x.name,
 		onclick: () => ontabchange(x.index),
-	}, [
-		`•${x.index}`,
-	])),
+	}, `•${x.index}`)),
 	putIndexes
 )
-
-// hWhen :: (a -> Bool) -> (a -> b) -> a -> (b | undefined)
-const hWhen = curryN(3, (a, b, d) => ifElse(a, b, () => undefined, d));
-
-const h_ = (...args) => () => h(...args)
-
-// bikeToTemplate :: Bike -> Template
-const bikeToTemplate = pick(TEMPLATE_FIELDS)
-
-// rawTemplateToTemplate :: RawTemplate -> Template
-const rawTemplateToTemplate = mapProps({
-	headTubeAngle: compose(add(Math.PI), toRadians),
-	seatTubeAngle: compose(add(Math.PI), toRadians),
-})
-
-const templateToRawTemplate  = mapProps({
-	headTubeAngle: compose(toDegrees, add(-Math.PI)),
-	seatTubeAngle: compose(toDegrees, add(-Math.PI)),
-})
-
-const templateToBike = pick(TEMPLATE_FIELDS)
-
-// appendToPath :: [String|Number] -> a -> Object -> Object
-const appendToPath = curry((p, a, o) => compose(
-	withDefault(o),
-	map(setPath2(p, o)),
-	map(append(a)),
-	path(p)
-)(o))
 
 // createInputsTree :: Model -> VTree
 const createInputsTree = model => compose(
@@ -629,22 +644,19 @@ const createInputsTree = model => compose(
 						onclick: compose(
 							map(run),
 							map(updateModelAndRender(model)),
-							//Maybe Model'''
 							map(setPath(["myBikes", model.currentTabIndex, "isDirty"], false)),
 							map(setPath(["myBikes", model.currentTabIndex, "template"], model.templates.list.length)),
 							chain(safe(() => model.templates.list.map(x => x.name).includes(model.newTemplateName) !== true)),
-							//Maybe Model''
-							merge(liftA2(appendToPath(["templates", "list"]))),
-							//Pair (Maybe Template) (Maybe Model')
+							merge(liftA2(changePath(["templates", "list"]))),
 							fanout(
 								compose(
+									map(append),
 									map(setPath(["name"], model.newTemplateName)),
 									map(bikeToTemplate),
 									path(["myBikes", model.currentTabIndex])
 								),
 								Maybe.Just
 							),
-							//Model'
 							() => setPath(["myBikes", model.currentTabIndex, "isInEdit"], false, model)
 						),
 					}, "✓"),
@@ -697,13 +709,7 @@ const createInputsTree = model => compose(
 						), 
 						h_("span .clickable .button", {
 							title: "give this frame a name",
-							onclick: compose(
-								run,
-								updateModelAndRender(model),
-								setPath(["myBikes", model.currentTabIndex, "newTemplateName"], "unnamed bike"),
-								setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
-								() => true
-							),
+							onclick: updateForTogglingTemplateRename(model),
 						}, "✎"),
 						model
 					),
@@ -1103,3 +1109,4 @@ compose(
 })
 
 inspect("inspecting", Maybe.Just(3))
+console.log(assign({a: {b: "c"}}, {a: {b: "b", d: "e"}, f: "g"}));
