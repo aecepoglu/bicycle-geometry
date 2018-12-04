@@ -8,12 +8,13 @@
 	[ ] show error on impossible measurements
 		[ ] show warning on bad crown angle
 [o] add combobox for selecting between bicycles
-[ ] save bicycles to DB
+[o] save bicycles to DB
 	[o] name templates on the client side
-	[ ] push templates to DB
+	[o] push templates to DB
 [o] multiple bicycles
 	[o] add new tabs
 	[o] switch between tabs
 	[o] close tabs
 	[ ] show ghosts
+[ ] use top-tube length and not headTubeOffset
 [ ] improve guide definitions
