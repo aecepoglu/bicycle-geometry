@@ -9,6 +9,7 @@ import List from "crocks/List"
 import Maybe from "crocks/Maybe"
 import Reader from "crocks/Reader"
 // Helpers
+import and from "crocks/logic/and"
 import assign from "crocks/helpers/assign"
 import branch from "crocks/Pair/branch"
 import chain from "crocks/pointfree/chain"
@@ -16,7 +17,9 @@ import compose from "crocks/helpers/compose"
 import concat from "crocks/pointfree/concat"
 import cons from "crocks/pointfree/cons"
 import curry from "crocks/helpers/curry"
+import curryN from "crocks/helpers/nAry"
 import identity from "crocks/combinators/identity"
+import ifElse from "crocks/logic/ifElse"
 import fanout from "crocks/helpers/fanout"
 import filter from "crocks/pointfree/filter"
 import flip from "crocks/combinators/flip"
@@ -26,11 +29,15 @@ import listToArray from "crocks/List/listToArray"
 import map from "crocks/pointfree/map"
 import mapProps from "crocks/helpers/mapProps"
 import merge from "crocks/pointfree/merge"
+import not from "crocks/logic/not"
 import objOf from "crocks/helpers/objOf"
 import omit from "crocks/helpers/omit"
 import path from "crocks/Maybe/propPath"
+import pathEq from "crocks/predicates/propPathEq"
+import pathSatisfies from "crocks/predicates/propPathSatisfies"
 import pick from "crocks/helpers/pick"
 import prop from "crocks/Maybe/prop"
+import propEq from "crocks/predicates/propEq"
 import reduce from "crocks/pointfree/reduce"
 import run from "crocks/pointfree/run"
 import runWith from "crocks/pointfree/runWith"
@@ -125,8 +132,9 @@ const svg = (a, b, c) => h(
 const add = curry((a, b) => a + b)
 // multiply :: Number -> Number -> Number
 const multiply = curry((a, b) => a * b)
-
+// gt :: Number -> Number -> Bool
 const gt = b => a => a > b
+// lt :: Number -> Number -> Bool
 const lt = b => a => a < b
 
 // toRadians :: Degrees -> Radians
@@ -526,13 +534,13 @@ const putIndexes = compose(
 const showTabs = (name, activeTabIndex, {ontabadd, ontabchange}) => compose(
 	x => h(name, x),
 	concat([
-		h("span .clickable", {
+		h("span .clickable .button", {
 			onclick: ontabadd,
 			title: "add new bike",
 		}, "+"),
 	]),
 	x => [h("span .realTabs", x)],
-	map(x => h(`span .clickable ${x.index == activeTabIndex ? ".active" : ""}`, {
+	map(x => h(`span .clickable .button ${x.index == activeTabIndex ? ".active" : ""}`, {
 		style: { color: x.color },
 		title: x.name,
 		onclick: () => ontabchange(x.index),
@@ -542,11 +550,10 @@ const showTabs = (name, activeTabIndex, {ontabadd, ontabchange}) => compose(
 	putIndexes
 )
 
-const heditable = (bool, h1, h2, h3, h4) => compose(
-	x => h("div .editable", x),
-	map(f => f()),
-	x => x ? [h2, h4] : [h1, h3]
-)(bool)
+// hWhen :: (a -> Bool) -> (a -> b) -> a -> (b | undefined)
+const hWhen = curryN(3, (a, b, d) => ifElse(a, b, () => undefined, d));
+
+const h_ = (...args) => () => h(...args)
 
 // bikeToTemplate :: Bike -> Template
 const bikeToTemplate = pick(TEMPLATE_FIELDS)
@@ -588,75 +595,33 @@ const createInputsTree = model => compose(
 	x => h("div .panel", x),
 	flip(concat)([
 		h("div .templates .zebra", [
-			model.myBikes.length > 1
-				? h("span .removeTabButton .clickable", {
-					title: "remove bike",
-					onclick: compose(
-						run,
-						updateModelAndRender(model),
-						updateForRemovingTabs(model),
-						() => model.currentTabIndex
-					),
-				}, "×")
-				: undefined,
+			hWhen(pathSatisfies(["myBikes", "length"], gt(1)), h_("span .NEcorner .clickable .button", {
+				title: "remove bike",
+				onclick: compose(
+					run,
+					updateModelAndRender(model),
+					updateForRemovingTabs(model),
+					() => model.currentTabIndex
+				),
+			}, "✕"), model),
+
 			h("div .title", "Template"),
-			heditable(
-				model.isInEdit === true,
-				() => h("select", {
-					disabled: model.templates.status == "busy",
-					onchange: compose(
-						map(run),
-						map(updateModelAndRender(model)),
-						map(updateForChangingTemplates(model)),
-						chain(
-							(model.isDirty && model.showDirtyConfirmation) ?
-								showConfirmDialog("You will lose changes made to this bike.\nAre you sure?") :
-								Maybe.Just
+
+			h("span .editable", model.isInEdit === true
+				? [
+					h("input .hoverable", {
+						value: model.newTemplateName,
+						onfocus: function() {
+							this.select(); //ughhh... :/
+						},
+						onchange: compose(
+							map(run),
+							map(updateModelAndRender(model)),
+							map(setPath2(["myBikes", model.currentTabIndex, "newTemplateName"], model)),
+							path(["target", "value"])
 						),
-						chain(parseFloatSafe),
-						path(["target", "value"])
-					),
-				}, cons(
-					model.template === "custom"
-						?  h("option", {
-							value: "custom",
-							selected: "selected",
-							disabled: true,
-						}, "custom")
-						: undefined,
-					map(x => h("option", {
-							value: x.index,
-							selected: model.template == x.index && "selected",
-						}, x.name),
-						putIndexes(model.templates.list)
-					)
-				)),
-				() => h("input", {
-					value: model.newTemplateName,
-					onfocus: function() {
-						this.select(); //ughhh... :/
-					},
-					onchange: compose(
-						map(run),
-						map(updateModelAndRender(model)),
-						map(setPath2(["myBikes", model.currentTabIndex, "newTemplateName"], model)),
-						path(["target", "value"])
-					),
-				}),
-				() => (model.isDirty && model.template == "custom")
-					? h("span .clickable", {
-						title: "give this frame a name",
-						onclick: compose(
-							run,
-							updateModelAndRender(model),
-							setPath(["myBikes", model.currentTabIndex, "newTemplateName"], "unnamed bike"),
-							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
-							() => true
-						),
-					}, "edit")
-					: undefined,
-				() => h("span", [
-					h("span .clickable", {
+					}),
+					h("span .clickable .button", {
 						onclick: compose(
 							map(run),
 							map(updateModelAndRender(model)),
@@ -679,27 +644,80 @@ const createInputsTree = model => compose(
 							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
 							() => false
 						),
-					}, "save"),
-					h("span .clickable", {
+					}, "✓"),
+					h("span .clickable .button", {
 						onclick: compose(
 							run,
 							updateModelAndRender(model),
 							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
 							() => false
 						),
-					}, "cancel"),
-				])
+					}, "✕"),
+				]
+				: [
+					h("select .clickable .button", {
+						disabled: model.templates.status == "busy",
+						onchange: compose(
+							map(run),
+							map(updateModelAndRender(model)),
+							map(updateForChangingTemplates(model)),
+							chain(
+								(model.isDirty && model.showDirtyConfirmation) ?
+									showConfirmDialog("You will lose changes made to this bike.\nAre you sure?") :
+									Maybe.Just
+							),
+							chain(parseFloatSafe),
+							path(["target", "value"])
+						),
+					}, concat([
+						hWhen(
+							propEq("template", "custom"),
+							h_("option", {
+								value: "custom",
+								selected: "selected",
+								disabled: true,
+							}, "custom"),
+							model
+						),
+						hWhen(() => true, h_("span", "✰"), model),
+					],
+						map(x => h("option", {
+								value: x.index,
+								selected: model.template == x.index && "selected",
+							}, x.name),
+							putIndexes(model.templates.list)
+						)
+					)),
+					hWhen(
+						and(
+							propEq("isDirty", true),
+							propEq("template", "custom")
+						), 
+						h_("span .clickable .button", {
+							title: "give this frame a name",
+							onclick: compose(
+								run,
+								updateModelAndRender(model),
+								setPath(["myBikes", model.currentTabIndex, "newTemplateName"], "unnamed bike"),
+								setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
+								() => true
+							),
+						}, "✎"),
+						model
+					),
+				]
 			),
-			(model.templates.status != "done"
-				?  h("span", {
+			hWhen(not(pathEq(["templates", "status"], "done")),
+				h_("img .icon", {
+					src: "/spinner.gif",
 					title: model.templates.status,
-				}, "⌛")
-				: undefined
+				}),
+				model
 			),
 		]),
 	]),
 	concat([
-		h("div", {
+		h("div .zebra", {
 			style: {
 				"line-height": "2em",
 				"text-align": "center",
@@ -707,7 +725,7 @@ const createInputsTree = model => compose(
 				"cursor": "pointer",
 			},
 		}, [
-			h("span", {
+			h("span .clickable", {
 				onclick: compose(
 					run,
 					updateModelAndRender(model),
@@ -723,7 +741,7 @@ const createInputsTree = model => compose(
 		]),
 		h("div .inputContainer .zebra", [
 			h("label", {}, "color"),
-			h("select",
+			h("select .clickable",
 				{
 					onchange: compose(
 						map(run),
@@ -740,7 +758,7 @@ const createInputsTree = model => compose(
 	]),
 	map(x => h("div .inputContainer .zebra", [
 		h("label", {}, (x.label || x.path.join(" "))),
-		h("input", {
+		h("input .hoverable", {
 			type: "number",
 			step: 0.1,
 			value: x.formatForHumans(withDefault(0, path(x.path, model))),
@@ -1041,7 +1059,3 @@ compose(
 })
 
 inspect("inspecting", Maybe.Just(3))
-
-console.log(
-	append(3)([1,2])
-)

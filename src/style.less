@@ -15,6 +15,29 @@ body {
 	}
 }
 
+.hoverable {
+	&:not(.active):hover {
+		color: #804040;
+
+		select&, input&, .button& {
+			color: inherit;
+			background-color: #804040;
+		}
+	}
+}
+
+.clickable:extend(.hoverable all) {
+	padding: 0px 0.5em;
+
+	&:not(.active) {
+		cursor: pointer;
+
+		&.button {
+			background-color: #383838;
+		}
+	}
+}
+
 .tabbedPanel {
 	.tabs {
 		.realTabs {
@@ -29,20 +52,12 @@ body {
 					border-style: solid solid none solid;
 
 					cursor: default;
+
+					/* &:hover {
+					 *	background-color: inherit;
+					 * }
+					 */
 				}
-			}
-		}
-	}
-
-	.clickable {
-		padding: 0px 0.5em;
-
-		&:not(.active) {
-			background-color: #383838;
-			cursor: pointer;
-
-			&:hover {
-				background-color: #404080;
 			}
 		}
 	}
@@ -74,25 +89,15 @@ body {
 
 	input, select {
 		margin-left: 0.5em;
-		width: 75px;
 	}
 
 	input {
-		background-color: inherit;
-
-		border-style: solid;
-		border-width: 1px;
-		border-color: transparent transparent grey transparent;
-
-		color: inherit;
 		padding: 0 0.5em;
-
-		&:hover {
-			border-color: grey;
-		}
+		width: 75px;
 
 		&:focus {
 			background-color: white;
+			border-color: #C00000;
 			color: black;
 		}
 
@@ -105,6 +110,7 @@ body {
 		font-size: 0.7em;
 		color: grey;
 	}
+
 }
 
 .templates {
@@ -116,7 +122,7 @@ body {
 		font-size: 0.7em;
 	}
 
-	.removeTabButton {
+	.NEcorner {
 		position: absolute;
 		right: 1em;
 		top: 1em;
@@ -125,4 +131,23 @@ body {
 
 input {
 	-moz-appearance: textfield;
+	border-color: transparent transparent grey transparent;
+}
+
+input, select {
+	background-color: inherit;
+	color: inherit;
+
+	border-style: solid;
+	border-width: 1px;
+}
+select {
+	border-color: transparent transparent grey transparent;
+	min-width: 75px;
+	padding-left: 1em;
+	padding-right: 1em;
+}
+
+img.icon {
+	display: inline-block;
 }
