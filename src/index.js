@@ -5,9 +5,7 @@ import h from "virtual-dom/h"
 import vdomPatch from "virtual-dom/patch"
 // Algebraic types
 import IO from "crocks/IO"
-import List from "crocks/List"
 import Maybe from "crocks/Maybe"
-import Reader from "crocks/Reader"
 // Helpers
 import and from "crocks/logic/and"
 import assign from "crocks/helpers/assign"
@@ -41,7 +39,6 @@ import reduce from "crocks/pointfree/reduce"
 import run from "crocks/pointfree/run"
 import safe from "crocks/Maybe/safe"
 import setPath from "crocks/helpers/setPath"
-import sequence from "crocks/pointfree/sequence"
 import tail from "crocks/pointfree/tail"
 import tap from "crocks/helpers/tap"
 import withDefault from "crocks/pointfree/option"
@@ -81,7 +78,6 @@ const TEMPLATE_FIELDS = [
 	"forkOffset",
 	"headTubeLen",
 	"headTubeAngle",
-	"topTubeOffset",
 	"topTubeLen",
 	"topTubeAngle",
 	"seatTubeLen",
@@ -143,6 +139,9 @@ const gt = b => a => a > b
 // lt :: Number -> Number -> Bool
 const lt = b => a => a < b
 
+const pow = b => a => Math.pow(a, b)
+const pow2 = pow(2)
+
 // toRadians :: Degrees -> Radians
 const toRadians = multiply(Math.PI / 180)
 
@@ -164,7 +163,7 @@ const parseFloatSafe = map(x => Number.isNaN(x) ? Maybe.Nothing() : Maybe.Just(x
 // join :: String -> [String] -> String
 const join = t => l => l.join(t)
 
-// spaced :: List String -> String
+// spaced :: [String] -> String
 const spaced = join(" ")
 
 // append :: a -> [a] -> [a]
@@ -211,22 +210,23 @@ const removeFromArray = curry((pos, array) => concat(
 // Array.of :: a -> [a]
 Array.of = x => [x]
 
-// unsafeProp :: [String|Number] -> Object -> a
-const unsafeProp = k => o => o[k]
-
 /*
  * Other Operations */
 
-// point :: (Number, Number) -> Point
-const point = (x, y) => ({x: x, y: y})
-// addVector :: (Point, Point) -> Point
-const addPoints = (a, b) => point(a.x + b.x, a.y + b.y)
-// avector :: (Number, Angle) -> Point
-const subPoints = (a, b) => point(a.x - b.x, a.y - b.y)
-// avector :: (Number, Angle) -> Point
-const avector = (l, a) => point(l * Math.cos(a), l * Math.sin(a))
-// vectorLen :: Point -> Number
-const vectorLen = p => Math.sqrt(p.x * p.x + p.y * p.y)
+const Point = (x, y) => ({x, y})
+const Vector = (l, a) => Point(l * Math.cos(a), l * Math.sin(a))
+
+Point.add = (p1, p2) => Point(p1.x + p2.x, p1.y + p2.y)
+
+Point.subtract = (p1, p2) => Point(p1.x - p2.x, p1.y - p2.y)
+
+Point.multiply = (k, p) => Point(p.x * k, p.y * k)
+
+Point.dot = (p1, p2) => (p1.x*p2.x + p1.y*p2.y)
+
+Point.len = p => Math.sqrt(pow2(p.x) + pow2(p.y))
+
+Point.unit = p => Point.multiply(1 / Point.len(p), p)
 
 // Unit :: (String, String) -> Unit
 const Unit = (long, short) => ({long, short})
@@ -238,9 +238,6 @@ const setPath2 = (a, b) => c => setPath(a, c, b)
 const showConfirmDialog = text => a => window.confirm(text) ?
 	Maybe.Just(a) :
 	Maybe.Nothing(a)
-
-// LineDef :: String -> List Point -> LineDef
-const LineDef = curry((style, list) => ({style: style, list: list}))
 
 // hWhen :: (a -> Bool) -> (a -> b) -> a -> (b | undefined)
 const hWhen = curryN(3, (a, b, d) => ifElse(a, b, () => undefined, d))
@@ -293,23 +290,22 @@ const buildPathWithStyle = ({style, list}) => svgpath(style, buildPath(list))
 
 // svgTrapezoid :: (Point, Point, Number, Number || undefined) -> svg.Path
 const svgTrapezoid = (p0, p1, w1, w2) => {
-	let v1 = avector(w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
-	let v2 = avector(w2 || w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
+	let v1 = Vector(w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
+	let v2 = Vector(w2 || w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
 
 	return buildPathWithStyle({
 		style: "straight",
 		list: [
 			p0, 
-			addPoints(p0, v1),
-			addPoints(p1, v2),
-			subPoints(p1, v2),
-			subPoints(p0, v1),
+			Point.add(p0, v1),
+			Point.add(p1, v2),
+			Point.subtract(p1, v2),
+			Point.subtract(p0, v1),
 		],
 	})
 }
 
-// Guide :: Apply Model -> List LineDef
-// drawGuide :: Model -> Guide -> Svg.g
+// drawGuide :: Model -> [Model -> [Point]] -> Svg.g
 const drawGuide = model => compose(
 	x => svg("g", {
 		stroke: "red",
@@ -323,58 +319,18 @@ const drawGuide = model => compose(
 
 const guide = (style, list) => ({style, list})
 
-// lineBetweenPoints :: [(Object -> Point)] -> (Object -> [Point])
-const lineBetweenPoints = fs => obj => map(f => f(obj), fs)
+// guideBetweenPoints :: [(Object -> Point)] -> (Object -> [Point])
+const guideBetweenPoints = fs => obj => map(f => f(obj), fs)
 
-// lineFromPointPerpendicularToLine :: (Object -> Point) -> (Object -> [Point]) -> (Object -> [Point])
-const lineFromPointPerpendicularToLine = (f1, f2) => compose(
-	([
-		{x: x1, y: y1},
-		{x: x2, y: y2},
-		{x: x3, y: y3},
-	]) => {
-		let k = ((y2-y1) * (x3-x1) - (x2-x1) * (y3-y1))
-			/ ((y2-y1)^2 + (x2-x1)^2)
+const projectionOnLineFromPoint = (l1, l2, p) => {
+	let u12 = Point.unit(Point.subtract(l2, l1))
+	let k = Point.dot(u12, Point.subtract(p, l1))
 	
-		return [
-			point(x3, y3),
-			point(
-				x3 + k*(y2 - y1),
-				y3 - k*(x2 - x1)
-			),
-		]
-	},
-	obj => [...f2(obj), f1(obj)]
-)
-
-
-// Creates a guide from point P1 to point P2 (where P1, P2 are Points named `n1` and `n2` in Model
-//  such that the line is parallel to the `k` axis
-//
-// lineFromPointToReferenceLine :: String a, String b => (a, b, a) -> Guide
-const lineFromPointToReferenceLine = (n1, k, n2) => compose(
-	//Reader Model -> List LineDef
-	map(([pa, pb]) => List([
-		LineDef("straight", List([
-			pa,
-			assign({ [k]: pa[k] }, pb),
-		])),
-		LineDef("dashed", List([
-			pb,
-			assign({ [k]: pa[k] - 0.5 * (pb[k] - pa[k]) }, pb),
-		])),
-	])),
-	map(x => x.toArray()),
-	//Reader Object -> List Point
-	sequence(Reader.of),
-	//List Reader (Object -> Point)
-	map(Reader),
-	//List (Object -> Point)
-	map(unsafeProp) // FIXME unsafeProp burada olmasin
-	//List String
-)(
-	List([n1, n2])
-)
+	return Point.add(
+		l1,
+		Point.multiply(k, u12)
+	)
+}
 
 // render :: Model -> VTree
 const createBicycleSvg = compose(
@@ -391,13 +347,13 @@ const createBicycleSvg = compose(
 		// seat tube
 		svgTrapezoid(model.bb, model.seatTubeEnd, model.thickness),
 		// chainstay
-		svgTrapezoid(model.bb, model.rearHub, 0.7 * model.thickness, 0.3 * model.thickness),
+		svgTrapezoid(model.bb, model.rearHub, 1 * model.thickness, 0.5 * model.thickness),
 		// head tube
 		svgTrapezoid(model.headTubeStart, model.headTubeEnd, 1.2 * model.thickness),
 		// seat stay
-		svgTrapezoid(model.rearHub, model.topTubeEnd, 0.5 * model.thickness, 0.8 * model.thickness),
+		svgTrapezoid(model.rearHub, model.topTubeEnd, 0.6 * model.thickness, 0.6 * model.thickness),
 		// fork crown
-		svgTrapezoid(model.headTubeStart, model.forkStart, 1.5 * model.thickness),
+		svgTrapezoid(model.headTubeStart, model.forkStart, 1.2 * model.thickness),
 		svg("circle", { //bottom bracket
 			cx: model.bb.x,
 			cy: model.bb.y,
@@ -478,7 +434,6 @@ const createBicycleSvg = compose(
 			topTubeEnd: panzoom,
 			seatTubeEnd: panzoom,
 			bb: panzoom,
-			bbProjection: panzoom,
 		}, model)
 	}
 )
@@ -807,8 +762,7 @@ const createInputsTree = model => compose(
 			onfocus: compose(
 				run,
 				updateModelAndRender(model),
-				setPath2(["guide"], model),
-				() => x.guide || List([])
+				() => setPath(["guide"], x.guide || [], model)
 				//undefined | Guide
 			),
 			onchange: compose(
@@ -842,9 +796,9 @@ const createInputsTree = model => compose(
 			model.headTubeLen
 		)), //TODO improve validation
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("frontHub"),
-				unsafeProp("rearHub"),
+			guide("straight", guideBetweenPoints([
+				x => x.frontHub,
+				x => x.rearHub,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -855,9 +809,9 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: safe(gt(0)),
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("topTubeStart"),
-				unsafeProp("topTubeEnd"),
+			guide("straight", guideBetweenPoints([
+				x => x.topTubeStart,
+				x => x.topTubeEnd,
 			])),
 		],
 		readonly: true,
@@ -869,9 +823,9 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.bottomTubeOffset)),
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("headTubeStart"),
-				unsafeProp("headTubeEnd"),
+			guide("straight", guideBetweenPoints([
+				x => x.headTubeStart,
+				x => x.headTubeEnd,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -891,10 +845,10 @@ const createInputsTree = model => compose(
 			safe(gt(0))
 		),
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("rearHub"),
-				unsafeProp("headTubeProjection"),
-				unsafeProp("headTubeEnd"),
+			guide("straight", guideBetweenPoints([
+				x => x.rearHub,
+				x => x.headTubeProjection,
+				x => x.headTubeEnd,
 			])),
 		],
 		unit: Unit("degrees", "°"),
@@ -905,9 +859,9 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: Maybe.Just,
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("bb"),
-				unsafeProp("topTubeEnd"),
+			guide("straight", guideBetweenPoints([
+				x => x.bb,
+				x => x.topTubeEnd,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -926,6 +880,13 @@ const createInputsTree = model => compose(
 			chain(safe(lt(90))),
 			safe(gt(0))
 		),
+		guide: [
+			guide("straight", guideBetweenPoints([
+				x => x.seatTubeEnd,
+				x => x.bb,
+				x => Point.subtract(x.bb, Point(x.seatTubeLen, 0)),
+			])),
+		],
 		unit: Unit("degrees", "°"),
 	},
 	{
@@ -934,9 +895,9 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("bb"),
-				unsafeProp("rearHub"),
+			guide("straight", guideBetweenPoints([
+				x => x.bb,
+				x => x.rearHub,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -947,16 +908,13 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: [
-			guide("straight", lineFromPointPerpendicularToLine(
-				unsafeProp("bb"),
-				lineBetweenPoints([
-					unsafeProp("rearHub"),
-					unsafeProp("frontHub"),
-				])
-			)),
-			guide("dashed", lineBetweenPoints([
-				unsafeProp("rearHub"),
-				unsafeProp("frontHub"),
+			guide("straight", guideBetweenPoints([
+				x => x.bb,
+				x => Point(x.bb.x, x.rearHub.y),
+			])),
+			guide("dashed", guideBetweenPoints([
+				x => x.rearHub,
+				x => x.frontHub,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -966,7 +924,16 @@ const createInputsTree = model => compose(
 		label: "reach",
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
-		guide: lineFromPointToReferenceLine("bb", "y", "headTubeEnd"), 
+		guide: [
+			guide("straight", guideBetweenPoints([
+				x => x.bb,
+				x => Point(x.bb.x, x.headTubeEnd.y),
+			])),
+			guide("dashed", guideBetweenPoints([
+				x => x.headTubeEnd,
+				x => Point(x.bb.x - 20, x.headTubeEnd.y),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -974,7 +941,16 @@ const createInputsTree = model => compose(
 		label: "stack",
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
-		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
+		guide: [
+			guide("straight", guideBetweenPoints([
+				x => x.bb,
+				x => Point(x.headTubeEnd.x, x.bb.y),
+			])),
+			guide("dashed", guideBetweenPoints([
+				x => x.headTubeEnd,
+				x => Point(x.headTubeEnd.x, x.bb.y + 20),
+			])),
+		], 
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -983,17 +959,21 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
 		guide: [
-			guide("straight", lineFromPointPerpendicularToLine(
-				unsafeProp("frontHub"),
-				unsafeProp("rearHub")
-			)),
-			guide("dashed", lineBetweenPoints([
-				unsafeProp("headTubeStart"),
-				unsafeProp("headTubeEnd"),
+			guide("straight", guideBetweenPoints([
+				x => x.frontHub,
+				x => projectionOnLineFromPoint(
+					x.frontHub,
+					x.headTubeStart,
+					x.headTubeEnd
+				),
 			])),
-			guide("dashed", lineBetweenPoints([
-				unsafeProp("frontHub"),
-				unsafeProp("rearHub"),
+			guide("dashed", guideBetweenPoints([
+				x => x.headTubeEnd,
+				x => projectionOnLineFromPoint(
+					x.frontHub,
+					x.headTubeStart,
+					x.headTubeEnd
+				),
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -1004,9 +984,9 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(4 * model.forkOffset)),
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("frontHub"),
-				unsafeProp("forkStart"),
+			guide("straight", guideBetweenPoints([
+				x => x.frontHub,
+				x => x.forkStart,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -1017,9 +997,9 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Nothing,
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("headTubeStart"),
-				unsafeProp("forkStart"),
+			guide("straight", guideBetweenPoints([
+				x => x.headTubeStart,
+				x => x.forkStart,
 			])),
 		],
 		readonly: true,
@@ -1032,29 +1012,40 @@ const createInputsTree = model => compose(
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.thickness)),
 		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("seatTubeEnd"),
-				unsafeProp("topTubeEnd"),
+			guide("straight", guideBetweenPoints([
+				x => x.seatTubeEnd,
+				x => x.topTubeEnd,
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
 	{
-		path: ["topTubeOffset"],
-		label: "top tube offset in head tube",
+		path: ["thickness"],
+		label: "tube thickness",
 		formatForHumans: identity,
-		formatForCalculations: safe(gt(0)),
-		guide: [
-			guide("straight", lineBetweenPoints([
-				unsafeProp("topTubeStart"),
-				unsafeProp("headTubeEnd"),
-			])),
-		],
+		formatForCalculations: safe(gt(5)),
 		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
 ])
+
+const intersectionOfLineAndCircle = (p1, p2, c, r) => {
+	//assert |c,p1| <= r <= |c,p2|
+	let k = projectionOnLineFromPoint(p1, p2, c)
+
+	return Point.add(
+		k,
+		Point.multiply(
+			// multiply with -1 for the other solution
+			Math.sqrt(
+				pow2(r)
+				- pow2(Point.len(Point.subtract(k, c)))
+			),
+			Point.unit(Point.subtract(p2, p1))
+		)
+	)
+}
 
 // createTree :: Model -> VTree
 const createTree = compose(
@@ -1064,16 +1055,16 @@ const createTree = compose(
 	]),
 	flip(reduce((x, f) => f(x))) ([
 		x => assign({
-			bb: point(x.pan.x, x.pan.y),
+			bb: Point(x.pan.x, x.pan.y),
 			bottomTubeOffset: x.headTubeLen * 0.7,
 		}, x),
 		x => assign({
-			headTubeEnd: addPoints(x.bb, point(x.reachLen, -x.stackLen)),
-			seatTubeEnd: addPoints(x.bb, avector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle)),
-			topTubeEnd: addPoints(x.bb, avector(x.seatTubeLen, x.seatTubeAngle)),
-			rearHub: subPoints(
+			headTubeEnd: Point.add(x.bb, Point(x.reachLen, -x.stackLen)),
+			seatTubeEnd: Point.add(x.bb, Vector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle)),
+			topTubeEnd: Point.add(x.bb, Vector(x.seatTubeLen, x.seatTubeAngle)),
+			rearHub: Point.subtract(
 				x.bb,
-				point(
+				Point(
 					x.chainstayLen * Math.cos(Math.asin(x.bbDropLen / x.chainstayLen)),
 					x.bbDropLen
 				)
@@ -1082,20 +1073,20 @@ const createTree = compose(
 			//TODO why minus?
 		}, x),
 		x => assign({
-			frontHub: addPoints(x.rearHub, point(x.wheelbaseLen, 0)),
-			headTubeStart: addPoints(x.headTubeEnd, avector(x.headTubeLen, x.headTubeAngle + Math.PI)),
+			frontHub: Point.add(x.rearHub, Point(x.wheelbaseLen, 0)),
+			headTubeStart: Point.add(x.headTubeEnd, Vector(x.headTubeLen, x.headTubeAngle + Math.PI)),
 		}, x),
 		x => assign({
-			forkStart: addPoints(x.frontHub, avector(x.forkLen, x.forkAngle)),
-			headTubeProjection: addPoints(x.frontHub, point(x.forkOffset / Math.sin(x.headTubeAngle), 0)),
+			forkStart: Point.add(x.frontHub, Vector(x.forkLen, x.forkAngle)),
+			headTubeProjection: Point.add(x.frontHub, Point(x.forkOffset / Math.sin(x.headTubeAngle), 0)),
 		}, x),
 		x => assign({
-			topTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.topTubeOffset, x.headTubeAngle)),
-			bottomTubeStart: addPoints(x.headTubeStart, avector(x.headTubeLen - x.bottomTubeOffset, x.headTubeAngle)),
+			topTubeStart: intersectionOfLineAndCircle(x.headTubeEnd, x.headTubeStart, x.topTubeEnd, x.topTubeLen),
+			bottomTubeStart: Point.add(x.headTubeStart, Vector(x.headTubeLen - x.bottomTubeOffset, x.headTubeAngle)),
 		}, x),
 		x => assign({
-			crownHeight: vectorLen(subPoints(x.forkStart, x.headTubeStart)),
-			topTubeLen: vectorLen(subPoints(x.topTubeStart, x.topTubeEnd)),
+			crownHeight: Point.len(Point.subtract(x.forkStart, x.headTubeStart)),
+			topTubeLen: Point.len(Point.subtract(x.topTubeStart, x.topTubeEnd)),
 		}, x),
 	]),
 	merge(assign),
@@ -1149,7 +1140,6 @@ compose(
 		forkOffset: 48,
 		headTubeLen: 114,
 		headTubeAngle: Math.PI + toRadians(+73),
-		topTubeOffset: 19.8,
 		topTubeLen: 550,
 		seatTubeLen: 550,
 		seatTubeExtra: 20,
@@ -1157,7 +1147,7 @@ compose(
 		wheelbaseLen: 1011,
 		stackLen: 544,
 		reachLen: 388,
-		thickness: 15,
+		thickness: 10,
 		fillColor: COLORS[0].code,
 		template: "custom",
 		isDirty: false,
@@ -1168,10 +1158,9 @@ compose(
 	},
 	currentTabIndex: 0,
 	zoom: 0.5,
-	pan: point(200, 300),
+	pan: Point(200, 300),
 	guide: [],
 	showDirtyConfirmation: true,
 })
 
 inspect("inspecting", Maybe.Just(3))
-console.log(assign({a: {b: "c"}}, {a: {b: "b", d: "e"}, f: "g"}));

@@ -16,5 +16,5 @@
 	[o] switch between tabs
 	[o] close tabs
 	[ ] show ghosts
-[ ] use top-tube length and not headTubeOffset
-[ ] improve guide definitions
+[o] use top-tube length and not headTubeOffset
+[o] improve guide definitions
