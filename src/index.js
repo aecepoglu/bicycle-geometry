@@ -12,6 +12,7 @@ import Reader from "crocks/Reader"
 import and from "crocks/logic/and"
 import assign from "crocks/helpers/assign"
 import branch from "crocks/Pair/branch"
+import bimap from "crocks/pointfree/bimap"
 import chain from "crocks/pointfree/chain"
 import compose from "crocks/helpers/compose"
 import concat from "crocks/pointfree/concat"
@@ -25,7 +26,6 @@ import filter from "crocks/pointfree/filter"
 import flip from "crocks/combinators/flip"
 import head from "crocks/pointfree/head"
 import liftA2 from "crocks/helpers/liftA2"
-import listToArray from "crocks/List/listToArray"
 import map from "crocks/pointfree/map"
 import mapProps from "crocks/helpers/mapProps"
 import merge from "crocks/pointfree/merge"
@@ -36,11 +36,9 @@ import path from "crocks/Maybe/propPath"
 import pathEq from "crocks/predicates/propPathEq"
 import pathSatisfies from "crocks/predicates/propPathSatisfies"
 import pick from "crocks/helpers/pick"
-import prop from "crocks/Maybe/prop"
 import propEq from "crocks/predicates/propEq"
 import reduce from "crocks/pointfree/reduce"
 import run from "crocks/pointfree/run"
-import runWith from "crocks/pointfree/runWith"
 import safe from "crocks/Maybe/safe"
 import setPath from "crocks/helpers/setPath"
 import sequence from "crocks/pointfree/sequence"
@@ -125,7 +123,13 @@ const svg = (a, b, c) => h(
 	c
 )
 
-const h2 = curryN(2, h);
+const h2 = curryN(2, h)
+
+// print :: String -> a -> a
+const print = prefix => tap(x => console.log(prefix, x))
+
+// inspect :: String -> a -> a
+const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 
 /*
  * Mathematical Operations */
@@ -159,6 +163,9 @@ const parseFloatSafe = map(x => Number.isNaN(x) ? Maybe.Nothing() : Maybe.Just(x
 
 // join :: String -> [String] -> String
 const join = t => l => l.join(t)
+
+// spaced :: List String -> String
+const spaced = join(" ")
 
 // append :: a -> [a] -> [a]
 const append = a => concat([a])
@@ -195,9 +202,6 @@ const changePath = curry((dest, f, O) => compose(
 	path(dest)
 )(O))
 
-// spaced :: List String -> String
-const spaced = join(" ")
-
 // removeFromArray :: (Number, [a]) -> [a]
 const removeFromArray = curry((pos, array) => concat(
 	array.slice(0, pos),
@@ -206,6 +210,9 @@ const removeFromArray = curry((pos, array) => concat(
 
 // Array.of :: a -> [a]
 Array.of = x => [x]
+
+// unsafeProp :: [String|Number] -> Object -> a
+const unsafeProp = k => o => o[k]
 
 /*
  * Other Operations */
@@ -218,21 +225,14 @@ const addPoints = (a, b) => point(a.x + b.x, a.y + b.y)
 const subPoints = (a, b) => point(a.x - b.x, a.y - b.y)
 // avector :: (Number, Angle) -> Point
 const avector = (l, a) => point(l * Math.cos(a), l * Math.sin(a))
-
+// vectorLen :: Point -> Number
 const vectorLen = p => Math.sqrt(p.x * p.x + p.y * p.y)
 
-// print :: String -> a -> a
-const print = curry((prefix, x) => {
-	console.log(prefix, x)
-	return x
-})
-
+// Unit :: (String, String) -> Unit
 const Unit = (long, short) => ({long, short})
 
 // setPath2 :: [String|Number] -> Obj -> a -> Obj
 const setPath2 = (a, b) => c => setPath(a, c, b)
-
-const inspect = prefix => tap(x => console.log(prefix + " " + x.inspect()))
 
 // showConfirmDialog :: String -> a -> Maybe a
 const showConfirmDialog = text => a => window.confirm(text) ?
@@ -243,8 +243,9 @@ const showConfirmDialog = text => a => window.confirm(text) ?
 const LineDef = curry((style, list) => ({style: style, list: list}))
 
 // hWhen :: (a -> Bool) -> (a -> b) -> a -> (b | undefined)
-const hWhen = curryN(3, (a, b, d) => ifElse(a, b, () => undefined, d));
+const hWhen = curryN(3, (a, b, d) => ifElse(a, b, () => undefined, d))
 
+// h_ :: (*...) -> () -> VTree
 const h_ = (...args) => () => h(...args)
 
 /*
@@ -268,7 +269,8 @@ const templateToRawTemplate  = mapProps({
 })
 
 /*
- * SVG Operations */
+ * SVG Operations
+ */
 
 const svgdp = op => p => `${op}${round(p.x)} ${round(p.y)}`
 
@@ -278,88 +280,81 @@ const svgpath = curry((style, d) => svg("path", ({
 	//deneme: style,
 })))
 
-// buildPolygonPath :: LineDef -> String
-const buildPolygonPath = compose(
-	merge(liftA2(svgpath)),
-	map(compose(
-		map(spaced),
-		map(listToArray),
-		merge(flip(concat))
-	)),
-	map(fanout(
-		compose(
-			map(List),
-			map(svgdp("M")),
-			chain(head)
-			//TODO check that input is a valid style for 'svg path'
-		),
-		compose(
-			map(map(svgdp("L"))),
-			chain(tail)
-		)
-	)),
-	fanout(prop("style"), prop("list"))
+// buildPath :: LineDef -> String
+const buildPath = compose(
+	withDefault(undefined),
+	map(spaced),
+	merge(liftA2(cons)),
+	bimap(map(svgdp("M")), map(map(svgdp("L")))),
+	fanout(head, tail)
 )
+
+const buildPathWithStyle = ({style, list}) => svgpath(style, buildPath(list))
 
 // svgTrapezoid :: (Point, Point, Number, Number || undefined) -> svg.Path
 const svgTrapezoid = (p0, p1, w1, w2) => {
 	let v1 = avector(w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
 	let v2 = avector(w2 || w1, Math.atan2(p1.x - p0.x, p0.y - p1.y))
 
-	return withDefault(undefined, buildPolygonPath({
+	return buildPathWithStyle({
 		style: "straight",
-		list: List([
+		list: [
 			p0, 
 			addPoints(p0, v1),
 			addPoints(p1, v2),
 			subPoints(p1, v2),
 			subPoints(p0, v1),
-		]),
-	}))
+		],
+	})
 }
 
-
-// (Apply Model -> Maybe List LineDef) -> Maybe Svg.g
+// Guide :: Apply Model -> List LineDef
+// drawGuide :: Model -> Guide -> Svg.g
 const drawGuide = model => compose(
-	map(x => svg("g", {
+	x => svg("g", {
 		stroke: "red",
 		fill: "none",
-	}, x)),
-	map(x => x.toArray()),
-	sequence(Maybe.of),
-	//List Maybe Svg.Path
-	map(chain(buildPolygonPath)),
-	sequence(List.of),
-	//Maybe List LineDef
-	runWith(model)
+	}, x),
+	map(buildPathWithStyle),
+	map(mapProps({
+		list: f => f(model),
+	}))
 )
 
-// Guide :: Reader Model -> Maybe List LineDef
-// lineThroughPoints :: [String] -> Guide
-const lineThroughPoints = compose(
-	map(map(map(LineDef("straight")))),
-	//Reader Model -> Maybe List List Point
-	map(map(List.of)),
-	//Reader Model -> Maybe List Point
-	map(sequence(Maybe.of)),
-	//Reader Model -> List Maybe Point
-	sequence(Reader.of),
-	//List Reader Model -> Maybe Point
-	map(Reader),
-	//List Model -> Maybe Point
-	map(prop),
-	//List String
-	List
-	//[String]
+const guide = (style, list) => ({style, list})
+
+// lineBetweenPoints :: [(Object -> Point)] -> (Object -> [Point])
+const lineBetweenPoints = fs => obj => map(f => f(obj), fs)
+
+// lineFromPointPerpendicularToLine :: (Object -> Point) -> (Object -> [Point]) -> (Object -> [Point])
+const lineFromPointPerpendicularToLine = (f1, f2) => compose(
+	([
+		{x: x1, y: y1},
+		{x: x2, y: y2},
+		{x: x3, y: y3},
+	]) => {
+		let k = ((y2-y1) * (x3-x1) - (x2-x1) * (y3-y1))
+			/ ((y2-y1)^2 + (x2-x1)^2)
+	
+		return [
+			point(x3, y3),
+			point(
+				x3 + k*(y2 - y1),
+				y3 - k*(x2 - x1)
+			),
+		]
+	},
+	obj => [...f2(obj), f1(obj)]
 )
+
 
 // Creates a guide from point P1 to point P2 (where P1, P2 are Points named `n1` and `n2` in Model
 //  such that the line is parallel to the `k` axis
 //
 // lineFromPointToReferenceLine :: String a, String b => (a, b, a) -> Guide
 const lineFromPointToReferenceLine = (n1, k, n2) => compose(
-	//Reader Model -> Maybe List (LineDef)
-	map(map(({0: pa, 1: pb}) => List([
+	//Reader Model -> List LineDef
+	map(([pa, pb]) => List([
 		LineDef("straight", List([
 			pa,
 			assign({ [k]: pa[k] }, pb),
@@ -368,18 +363,15 @@ const lineFromPointToReferenceLine = (n1, k, n2) => compose(
 			pb,
 			assign({ [k]: pa[k] - 0.5 * (pb[k] - pa[k]) }, pb),
 		])),
-	]))),
-	map(map(x => x.toArray())),
-	//Reader Model -> Maybe (List Point)
-	map(sequence(Maybe.of)),
-	//Reader Model -> List (Maybe Point)
+	])),
+	map(x => x.toArray()),
+	//Reader Object -> List Point
 	sequence(Reader.of),
-	//List Reader (Model -> Maybe Point)
+	//List Reader (Object -> Point)
 	map(Reader),
-	//TODO validate using (Point.isPoint :: a -> Maybe Point)
-	//List (Model -> Maybe Point)
-	map(prop)
-	//List String String
+	//List (Object -> Point)
+	map(unsafeProp) // FIXME unsafeProp burada olmasin
+	//List String
 )(
 	List([n1, n2])
 )
@@ -463,9 +455,7 @@ const createBicycleSvg = compose(
 			r: 4,
 			fill: ALT_COLOR,
 		}),
-		withDefault(undefined,
-			drawGuide(model)(model.guide)
-		),
+		drawGuide(model)(model.guide),
 	]),
 	model => {
 		let zoom = multiply(model.zoom)
@@ -815,11 +805,10 @@ const createInputsTree = model => compose(
 			value: x.formatForHumans(withDefault(0, path(x.path, model))),
 			readonly: x.readonly,
 			onfocus: compose(
-				map(run),
-				map(updateModelAndRender(model)),
-				map(setPath2(["guide"], model)),
-				//Maybe Guide
-				() => safe(identity, x.guide)
+				run,
+				updateModelAndRender(model),
+				setPath2(["guide"], model),
+				() => x.guide || List([])
 				//undefined | Guide
 			),
 			onchange: compose(
@@ -852,7 +841,12 @@ const createInputsTree = model => compose(
 			model.forkLen +
 			model.headTubeLen
 		)), //TODO improve validation
-		guide: lineThroughPoints(["frontHub", "rearHub"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("frontHub"),
+				unsafeProp("rearHub"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -860,7 +854,12 @@ const createInputsTree = model => compose(
 		label: "top tube",
 		formatForHumans: round,
 		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("topTubeStart"),
+				unsafeProp("topTubeEnd"),
+			])),
+		],
 		readonly: true,
 		unit: Unit("milimeters", "mm"),
 	},
@@ -869,7 +868,12 @@ const createInputsTree = model => compose(
 		label: "head tube",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.bottomTubeOffset)),
-		guide: lineThroughPoints(["topTubeStart", "topTubeEnd"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("headTubeStart"),
+				unsafeProp("headTubeEnd"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -886,7 +890,13 @@ const createInputsTree = model => compose(
 			chain(safe(lt(90))),
 			safe(gt(0))
 		),
-		guide: lineThroughPoints(["rearHub", "headTubeProjection", "headTubeEnd"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("rearHub"),
+				unsafeProp("headTubeProjection"),
+				unsafeProp("headTubeEnd"),
+			])),
+		],
 		unit: Unit("degrees", "°"),
 	},
 	{
@@ -894,7 +904,12 @@ const createInputsTree = model => compose(
 		label: "seat tube",
 		formatForHumans: identity,
 		formatForCalculations: Maybe.Just,
-		guide: lineThroughPoints(["bb", "topTubeEnd"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("bb"),
+				unsafeProp("topTubeEnd"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -918,7 +933,12 @@ const createInputsTree = model => compose(
 		label: "chainstay",
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
-		guide: lineThroughPoints(["bb", "rearHub"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("bb"),
+				unsafeProp("rearHub"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -926,7 +946,19 @@ const createInputsTree = model => compose(
 		label: "bb drop",
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
-		guide: lineFromPointToReferenceLine("bb", "x", "rearHub"),
+		guide: [
+			guide("straight", lineFromPointPerpendicularToLine(
+				unsafeProp("bb"),
+				lineBetweenPoints([
+					unsafeProp("rearHub"),
+					unsafeProp("frontHub"),
+				])
+			)),
+			guide("dashed", lineBetweenPoints([
+				unsafeProp("rearHub"),
+				unsafeProp("frontHub"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -950,7 +982,20 @@ const createInputsTree = model => compose(
 		label: "fork offset",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
+		guide: [
+			guide("straight", lineFromPointPerpendicularToLine(
+				unsafeProp("frontHub"),
+				unsafeProp("rearHub")
+			)),
+			guide("dashed", lineBetweenPoints([
+				unsafeProp("headTubeStart"),
+				unsafeProp("headTubeEnd"),
+			])),
+			guide("dashed", lineBetweenPoints([
+				unsafeProp("frontHub"),
+				unsafeProp("rearHub"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -958,7 +1003,12 @@ const createInputsTree = model => compose(
 		label: "fork",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(4 * model.forkOffset)),
-		guide: lineThroughPoints(["frontHub", "forkStart"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("frontHub"),
+				unsafeProp("forkStart"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -966,7 +1016,12 @@ const createInputsTree = model => compose(
 		label: "crown height",
 		formatForHumans: round,
 		formatForCalculations: Maybe.Nothing,
-		guide: lineThroughPoints(["headTubeStart", "forkStart"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("headTubeStart"),
+				unsafeProp("forkStart"),
+			])),
+		],
 		readonly: true,
 		unit: Unit("milimeters", "mm"),
 		isExtra: true,
@@ -976,7 +1031,12 @@ const createInputsTree = model => compose(
 		label: "seat tube padding",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(model.thickness)),
-		guide: lineThroughPoints(["seatTubeEnd", "topTubeEnd"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("seatTubeEnd"),
+				unsafeProp("topTubeEnd"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
@@ -985,7 +1045,12 @@ const createInputsTree = model => compose(
 		label: "top tube offset in head tube",
 		formatForHumans: identity,
 		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["topTubeStart", "headTubeEnd"]),
+		guide: [
+			guide("straight", lineBetweenPoints([
+				unsafeProp("topTubeStart"),
+				unsafeProp("headTubeEnd"),
+			])),
+		],
 		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
@@ -1104,7 +1169,7 @@ compose(
 	currentTabIndex: 0,
 	zoom: 0.5,
 	pan: point(200, 300),
-	guide: lineThroughPoints([]),
+	guide: [],
 	showDirtyConfirmation: true,
 })
 
