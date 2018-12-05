@@ -32,8 +32,8 @@ const request = (url, method, data) => Async((reject, resolve) => {
 })
 
 const listBikes = () => request(BIKES_API, "GET", undefined)
-//const createBike = data => request(BIKES_API, "POST", data)
-const createBike = data => Async((reject, resolve) => {
+const createBike = data => request(BIKES_API, "POST", data)
+const createBikeMock = data => Async((reject, resolve) => {
 	window.setTimeout(() => {
 		resolve(Object.assign({_id: "123123123123"}, data));
 	}, 3000);
@@ -41,5 +41,6 @@ const createBike = data => Async((reject, resolve) => {
 
 export {
 	createBike,
+	createBikeMock,
 	listBikes,
 }
