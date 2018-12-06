@@ -19,6 +19,8 @@
     "eslint": "^5.9.0",
     "eslint-loader": "^2.1.1",
     "fantasy-land": "^3.5.0",
+    "less": "^3.8.1",
+    "less-loader": "^4.1.0",
     "ramda": "^0.25.0",
     "sanctuary-either": "^1.0.0",
     "sanctuary-maybe": "^1.0.0",

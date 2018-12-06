@@ -19,16 +19,11 @@ module.exports = {
 				{ loader: "eslint-loader" },
 			],
 		}, {
-			test: /\.css$/,
+			test: /\.less/,
 			use: [
 				"style-loader",
-				{
-					loader: "css-loader",
-					options: {
-						modules: true,
-						localIdentName: "[sha1:hash:hex:4]",
-					},
-				},
+				"css-loader",
+				"less-loader",
 			],
 		}]
 	},
