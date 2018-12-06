@@ -1024,7 +1024,10 @@ const createInputsTree = model => compose(
 		path: ["thickness"],
 		label: "tube thickness",
 		formatForHumans: identity,
-		formatForCalculations: safe(gt(5)),
+		formatForCalculations: compose(
+			safe(gt(4)),
+			multiply(0.5)
+		),
 		unit: Unit("milimeters", "mm"),
 		isExtra: true,
 	},
