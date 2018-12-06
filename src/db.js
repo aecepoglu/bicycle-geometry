@@ -28,11 +28,16 @@ const request = (url, method, data) => Async((reject, resolve) => {
 	xhr.setRequestHeader("x-apikey", KEY);
 	xhr.setRequestHeader("cache-control", "no-cache");
 	
-	xhr.send(data);
+	xhr.send(data ? JSON.stringify(data) : data);
 })
 
-const listBikes = () => request(BIKES_API, "GET", null)
-const createBike = data => request(BIKES_API, "POST", data)
+const listBikes = () => request(BIKES_API, "GET", undefined)
+//const createBike = data => request(BIKES_API, "POST", data)
+const createBike = data => Async((reject, resolve) => {
+	window.setTimeout(() => {
+		resolve(Object.assign({_id: "123123123123"}, data));
+	}, 3000);
+});
 
 export {
 	createBike,

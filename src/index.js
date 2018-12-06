@@ -49,7 +49,7 @@ import tap from "crocks/helpers/tap"
 import withDefault from "crocks/pointfree/option"
 
 import SafeModel from "./model"
-import {listBikes} from "./db"
+import {listBikes, createBike} from "./db"
 
 import "./style.less"
 
@@ -155,7 +155,7 @@ const parseFloatSafe = map(x => Number.isNaN(x) ? Maybe.Nothing() : Maybe.Just(x
 /*
  * Array Operations */
 
-// join :: String -> List String -> String
+// join :: String -> [String] -> String
 const join = t => l => l.join(t)
 
 // append :: a -> [a] -> [a]
@@ -164,6 +164,7 @@ const append = a => concat([a])
 // (Object, [String|Number]) -> Number -> Maybe a
 const fromArrayAt = (model, list) => compose(
 	flip(path)(model),
+	print(model),
 	flip(concat)(list),
 	Array.of
 )
@@ -446,8 +447,7 @@ const updateModelAndRender = oldmodel => compose(
 	//IO VTree
 	map(createTree),
 	//IO Model
-	setModel,
-	print("rendering")
+	setModel
 )
 
 // updateForAddNewTab :: Model -> () -> Model
@@ -502,7 +502,6 @@ const updateForRemovingTabs = model => compose(
 const updateForChangingTemplates = model => compose(
 	setPath2(["myBikes", model.currentTabIndex], model),
 	withDefault({}),
-	map(templateToBike),
 	merge(liftA2(assign)),
 	fanout(
 		compose(
@@ -511,7 +510,7 @@ const updateForChangingTemplates = model => compose(
 			objOf("template")
 		),
 		compose(
-			templateToBike,
+			map(templateToBike),
 			fromArrayAt(model, ["templates", "list"])
 		)
 	)
@@ -562,6 +561,11 @@ const bikeToTemplate = pick(TEMPLATE_FIELDS)
 const rawTemplateToTemplate = mapProps({
 	headTubeAngle: compose(add(Math.PI), toRadians),
 	seatTubeAngle: compose(add(Math.PI), toRadians),
+})
+
+const templateToRawTemplate  = mapProps({
+	headTubeAngle: compose(toDegrees, add(-Math.PI)),
+	seatTubeAngle: compose(toDegrees, add(-Math.PI)),
 })
 
 const templateToBike = pick(TEMPLATE_FIELDS)
@@ -641,8 +645,7 @@ const createInputsTree = model => compose(
 								Maybe.Just
 							),
 							//Model'
-							setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
-							() => false
+							() => setPath(["myBikes", model.currentTabIndex, "isInEdit"], false, model)
 						),
 					}, "✓"),
 					h("span .clickable .button", {
@@ -679,7 +682,6 @@ const createInputsTree = model => compose(
 							}, "custom"),
 							model
 						),
-						hWhen(() => true, h_("span", "✰"), model),
 					],
 						map(x => h("option", {
 								value: x.index,
@@ -705,14 +707,57 @@ const createInputsTree = model => compose(
 						}, "✎"),
 						model
 					),
+					hWhen(not(pathEq(["templates", "status"], "done")),
+						h_("img .icon", {
+							src: "/spinner.gif",
+							title: model.templates.status,
+						}),
+						model
+					),
+					hWhen(
+						x => Number.isInteger(x.template) && x.templates.list[x.template]._id === undefined,
+						h_("span .clickable .button", {
+							onclick: compose(
+								map(run),
+								map(updateModelAndRender(model)),
+								map(() => setPath(["templates", "status"], "busy", model)),
+								map(x => x.fork(
+									print(window.alert),
+									print("saved")
+								)),
+								map(map(map(run))),
+								map(map(map(updateModelAndRender(model)))),
+								map(map(map(setPath(["templates", "status"], "done")))),
+								map(map(tpl => {
+									//TODO 
+									let model_ = getModel()
+									let i = model_.templates.list.findIndex(propEq("name", tpl.name))
+
+									if (i < 0) {
+										return Maybe.Nothing()
+									}
+
+									return Maybe.Just(
+										setPath(["templates", "list", i], tpl, model_)
+									)
+								})),
+								map(map(rawTemplateToTemplate)),
+								map(createBike),
+								map(templateToRawTemplate),
+								chain(showConfirmDialog(join("\n")([
+									"Publish this bike?",
+									"",
+									"Publishing it shares it with other users.",
+									"",
+									"Once published, nobody (including you) can edit/remove it.",
+								]))),
+								chain(fromArrayAt(model, ["templates", "list"])),
+								() => safe(Number.isInteger, model.template)
+							),
+						}, "⇅"),
+						model
+					),
 				]
-			),
-			hWhen(not(pathEq(["templates", "status"], "done")),
-				h_("img .icon", {
-					src: "/spinner.gif",
-					title: model.templates.status,
-				}),
-				model
 			),
 		]),
 	]),
@@ -814,22 +859,6 @@ const createInputsTree = model => compose(
 		unit: Unit("milimeters", "mm"),
 	},
 	{
-		path: ["forkLen"],
-		label: "fork",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(4 * model.forkOffset)),
-		guide: lineThroughPoints(["frontHub", "forkStart"]),
-		unit: Unit("milimeters", "mm"),
-	},
-	{
-		path: ["forkOffset"],
-		label: "fork offset",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(0)),
-		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
-		unit: Unit("milimeters", "mm"),
-	},
-	{
 		path: ["headTubeLen"],
 		label: "head tube",
 		formatForHumans: identity,
@@ -908,6 +937,22 @@ const createInputsTree = model => compose(
 		formatForHumans: round,
 		formatForCalculations: Maybe.Just,
 		guide: lineFromPointToReferenceLine("bb", "x", "headTubeEnd"), 
+		unit: Unit("milimeters", "mm"),
+	},
+	{
+		path: ["forkOffset"],
+		label: "fork offset",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(0)),
+		guide: lineThroughPoints(["frontHub", "headTubeProjection"]),
+		unit: Unit("milimeters", "mm"),
+	},
+	{
+		path: ["forkLen"],
+		label: "fork",
+		formatForHumans: identity,
+		formatForCalculations: safe(gt(4 * model.forkOffset)),
+		guide: lineThroughPoints(["frontHub", "forkStart"]),
 		unit: Unit("milimeters", "mm"),
 	},
 	{
@@ -1027,21 +1072,20 @@ compose(
 	setModel
 )({
 	myBikes: [{
-		bbDropLen: 78,
-		chainstayLen: 460,
-		forkLen: 390,
-		forkOffset: 45,
-		headTubeLen: 152,
-		headTubeAngle: Math.PI + toRadians(+72),
-		topTubeOffset: 30,
-		topTubeLen: 564.5,
-		topTubeAngle: toRadians(0),
-		seatTubeLen: 560,
+		bbDropLen: 75,
+		chainstayLen: 435,
+		forkLen: 388,
+		forkOffset: 48,
+		headTubeLen: 114,
+		headTubeAngle: Math.PI + toRadians(+73),
+		topTubeOffset: 19.8,
+		topTubeLen: 550,
+		seatTubeLen: 550,
 		seatTubeExtra: 20,
-		seatTubeAngle: Math.PI + toRadians(+73),
-		wheelbaseLen: 1055.6,
-		stackLen: 588,
-		reachLen: 389.3,
+		seatTubeAngle: Math.PI + toRadians(+73.5),
+		wheelbaseLen: 1011,
+		stackLen: 544,
+		reachLen: 388,
 		thickness: 15,
 		fillColor: COLORS[0].code,
 		template: "custom",
