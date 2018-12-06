@@ -45,18 +45,21 @@ body {
 
 	.panel {
 		border: 2px solid #444;
+		background-color: #555;
+
+		.zebra {
+			&:nth-child(2n+1) {
+				background-color: #444;
+			}
+		}
 	}
 }
+
 
 .inputContainer {
 	padding: 0.5em 0.5em;
 	display: flex;
 	align-items: center;
-
-	&:nth-child(2n+1) {
-		background-color: #444;
-	}
-
 
 	label {
 		display: block;
@@ -98,7 +101,14 @@ body {
 		font-size: 0.7em;
 		color: grey;
 	}
-	
+}
+
+.templates {
+	padding: 1em;
+
+	.title {
+		margin-bottom: 0.5em;
+	}
 }
 
 input {
