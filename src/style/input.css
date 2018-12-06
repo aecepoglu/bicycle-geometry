@@ -1,0 +1,12 @@
+.container {
+	margin: 0.5em 0.5em;;
+}
+
+.container label {
+	display: block;
+	text-transform: capitalize;
+}
+
+.container input {
+
+}

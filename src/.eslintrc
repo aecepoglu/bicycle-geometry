@@ -5,6 +5,7 @@
 	"rules": {
 		"comma-dangle": ["error", "always-multiline"],
 		"quotes": ["error", "double"],
-		"no-var": "error"
+		"no-var": "error",
+		"no-unused-vars": "warn"
 	}
 }
