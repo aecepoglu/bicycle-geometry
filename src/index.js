@@ -338,7 +338,7 @@ const createBicycleSvg = compose(
 		style: {
 			fill: model.fillColor,
 		},
-		viewBox: "0 0 700 550",
+		viewBox: "0 0 700 400",
 	}, [
 		// top tube
 		svgTrapezoid(model.topTubeEnd, model.topTubeStart, model.thickness),
@@ -1158,7 +1158,7 @@ compose(
 	},
 	currentTabIndex: 0,
 	zoom: 0.5,
-	pan: Point(200, 300),
+	pan: Point(200, 200),
 	guide: [],
 	showDirtyConfirmation: true,
 })
