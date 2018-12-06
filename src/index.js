@@ -756,7 +756,7 @@ const createInputsTree = model => compose(
 		h("label", {}, (x.label || x.path.join(" "))),
 		h("input .hoverable", {
 			type: "number",
-			step: 0.1,
+			step: x.step || 0.1,
 			value: x.formatForHumans(withDefault(0, path(x.path, model))),
 			readonly: x.readonly,
 			onfocus: compose(
@@ -1023,9 +1023,13 @@ const createInputsTree = model => compose(
 	{
 		path: ["thickness"],
 		label: "tube thickness",
-		formatForHumans: identity,
-		formatForCalculations: safe(gt(5)),
+		formatForHumans: multiply(2),
+		formatForCalculations: compose(
+			safe(gt(4)),
+			multiply(0.5)
+		),
 		unit: Unit("milimeters", "mm"),
+		step: 1.0,
 		isExtra: true,
 	},
 ])
@@ -1147,7 +1151,7 @@ compose(
 		wheelbaseLen: 1011,
 		stackLen: 544,
 		reachLen: 388,
-		thickness: 10,
+		thickness: 14,
 		fillColor: COLORS[0].code,
 		template: "custom",
 		isDirty: false,
