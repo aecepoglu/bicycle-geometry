@@ -927,11 +927,11 @@ const createInputsTree = model => compose(
 		guide: [
 			guide("straight", guideBetweenPoints([
 				x => x.bb,
-				x => Point(x.bb.x, x.headTubeEnd.y),
+				x => Point(x.headTubeEnd.x, x.bb.y),
 			])),
 			guide("dashed", guideBetweenPoints([
 				x => x.headTubeEnd,
-				x => Point(x.bb.x - 20, x.headTubeEnd.y),
+				x => Point(x.headTubeEnd.x, x.bb.y + 20),
 			])),
 		],
 		unit: Unit("milimeters", "mm"),
@@ -944,11 +944,11 @@ const createInputsTree = model => compose(
 		guide: [
 			guide("straight", guideBetweenPoints([
 				x => x.bb,
-				x => Point(x.headTubeEnd.x, x.bb.y),
+				x => Point(x.bb.x, x.headTubeEnd.y),
 			])),
 			guide("dashed", guideBetweenPoints([
 				x => x.headTubeEnd,
-				x => Point(x.headTubeEnd.x, x.bb.y + 20),
+				x => Point(x.bb.x - 20, x.headTubeEnd.y),
 			])),
 		], 
 		unit: Unit("milimeters", "mm"),
