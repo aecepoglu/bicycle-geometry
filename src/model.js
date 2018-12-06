@@ -18,13 +18,3 @@ class Model {
 }
 
 export default Model
-
-export {
-	create,
-	get,
-	set,
-	point,
-	tube,
-	toRadians,
-	toDegrees,
-}
