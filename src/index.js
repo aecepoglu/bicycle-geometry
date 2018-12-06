@@ -962,17 +962,17 @@ const createInputsTree = model => compose(
 			guide("straight", guideBetweenPoints([
 				x => x.frontHub,
 				x => projectionOnLineFromPoint(
-					x.frontHub,
 					x.headTubeStart,
-					x.headTubeEnd
+					x.headTubeEnd,
+					x.frontHub
 				),
 			])),
 			guide("dashed", guideBetweenPoints([
 				x => x.headTubeEnd,
 				x => projectionOnLineFromPoint(
-					x.frontHub,
 					x.headTubeStart,
-					x.headTubeEnd
+					x.headTubeEnd,
+					x.frontHub
 				),
 			])),
 		],
