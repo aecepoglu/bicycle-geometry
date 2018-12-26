@@ -35,6 +35,7 @@ module.exports = {
 
 	devServer: {
 		contentBase: path.resolve("./public"),
+		disableHostCheck: true,
 		port: 3000,
 	}
 };

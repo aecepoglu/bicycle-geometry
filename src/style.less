@@ -1,6 +1,15 @@
+@bgColor1: #555; //primary background
+@bgColor2: #444;
+@bgColor3: #383838;
+@altColor1: #804040;
+@altColor2: #C00000;
+@fgColor1: #FFFFFF;
+@fgColor2: #C0C0C0;
+@fgColor3: #808080;
+
 body {
-	background-color: #555;
-	color: white;
+	background-color: @bgColor1;
+	color: @fgColor1;
 	font-family: sans-serif;
 }
 
@@ -18,11 +27,11 @@ body {
 
 .hoverable {
 	&:not(.active):hover {
-		color: #804040;
+		color: @altColor1;
 
 		select&, input&, .button& {
 			color: inherit;
-			background-color: #804040;
+			background-color: @altColor1;
 		}
 	}
 }
@@ -34,7 +43,7 @@ body {
 		cursor: pointer;
 
 		&.button {
-			background-color: #383838;
+			background-color: @bgColor3;
 		}
 	}
 }
@@ -48,8 +57,8 @@ body {
 				margin-right: 1px;
 
 				&.active {
-					border-color: #444;
-					background-color: #444;
+					border-color: @bgColor2;
+					background-color: @bgColor2;
 					border-style: solid solid none solid;
 
 					cursor: default;
@@ -59,13 +68,26 @@ body {
 	}
 
 	.panel {
-		border: 2px solid #444;
-		background-color: #555;
+		border: 2px solid @bgColor2;
+		background-color: @bgColor1;
 
 		.zebra {
 			&:nth-child(2n+1) {
-				background-color: #444;
+				background-color: @bgColor2;
 			}
+		}
+	}
+
+	.footer {
+		font-style: italic;
+		font-size: 0.6em;
+		text-align: center;
+		padding-top: 0.5em;
+		color: @fgColor2;
+
+		a:not(:hover) {
+			color: @fgColor2;
+			padding: 0 0.5em 0.3em 0.5em;
 		}
 	}
 }
@@ -75,6 +97,7 @@ body {
 	padding: 0.5em 0.5em;
 	display: flex;
 	align-items: center;
+	flex-flow: wrap;
 
 	label {
 		display: block;
@@ -92,8 +115,8 @@ body {
 		width: 75px;
 
 		&:focus {
-			background-color: white;
-			border-color: #C00000;
+			background-color: @fgColor1;
+			border-color: @altColor2;
 			color: black;
 		}
 
@@ -104,9 +127,14 @@ body {
 
 	.unit {
 		font-size: 0.7em;
-		color: grey;
+		color: @fgColor3;
 	}
 
+	.error {
+		flex-basis: 100%;
+		text-align: center;
+		color: @altColor2;
+	}
 }
 
 .templates {
@@ -127,7 +155,7 @@ body {
 
 input {
 	-moz-appearance: textfield;
-	border-color: transparent transparent grey transparent;
+	border-color: transparent transparent @fgColor3;
 }
 
 input, select {
@@ -138,7 +166,7 @@ input, select {
 	border-width: 1px;
 }
 select {
-	border-color: transparent transparent grey transparent;
+	border-color: transparent transparent @fgColor3;
 	min-width: 75px;
 	padding-left: 1em;
 	padding-right: 1em;
@@ -146,4 +174,12 @@ select {
 
 img.icon {
 	display: inline-block;
+}
+
+a {
+	color: @fgColor1;
+
+	&:hover {
+		color: @altColor1
+	}
 }

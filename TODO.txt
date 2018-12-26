@@ -5,8 +5,8 @@
 [ ] pan/zoom
 [ ] validation errors
 	[ ] show error on bad input (text instead of number)
-	[ ] show error on impossible measurements
-		[ ] show warning on bad crown angle
+	[o] show error on impossible measurements
+		[o] show warning on bad crown angle
 [o] add combobox for selecting between bicycles
 [o] save bicycles to DB
 	[o] name templates on the client side
@@ -18,3 +18,19 @@
 	[ ] show ghosts
 [o] use top-tube length and not headTubeOffset
 [o] improve guide definitions
+[o] FIX bug when user saves a bike the templates-list is broken
+[ ] be able to enter modes of measurements
+	[ ] effective top tube length
+[ ] add components and extra measurements
+	[ ] components
+		[ ] stem
+		[ ] handlebar
+		[ ] saddle tube
+		[ ] saddle
+		[ ] tires
+	[ ] measurements
+		[ ] handlebar reach
+		[ ] handlebar drop
+		[ ] standover height
+		[ ] trail
+		[ ] saddle height
