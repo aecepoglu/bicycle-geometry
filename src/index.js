@@ -99,11 +99,12 @@ const svg = (a, b, c) => h(
 	a,
 	Array.isArray(b)
 		? b
-		: assign(
-			pick(["style"], b),
+		: Object.assign(
+			b._keep || {},
+			omit(["_keep"], b),
 			{
 				namespace: "http://www.w3.org/2000/svg",
-				attributes: omit(["style"], b),
+				attributes: omit(["_keep"], b),
 			}
 		),
 	c
@@ -295,11 +296,13 @@ const projectionOnLineFromPoint = (l1, l2, p) => {
 
 // render :: Model -> VTree
 const createBicycleSvg = compose(
-	model => svg("svg", {
-		style: {
-			fill: model.fillColor,
+	model => svg("g", {
+		_keep: {
+			style: {
+				fill: model.fillColor,
+				"fill-opacity": model.isSlightlyTransparent ? 0.5 : undefined,
+			},
 		},
-		viewBox: "0 0 700 400",
 	}, [
 		// top tube
 		svgTrapezoid(model.topTubeEnd, model.topTubeStart, model.thickness),
@@ -315,11 +318,13 @@ const createBicycleSvg = compose(
 		svgTrapezoid(model.rearHub, model.topTubeEnd, 0.6 * model.thickness, 0.6 * model.thickness),
 		// fork crown
 		svgTrapezoid(model.headTubeStart, model.forkStart, 1.2 * model.thickness + 2),
-		svg("circle", { //bottom bracket
+		//bottom bracket
+		svg("circle", {
 			cx: model.bb.x,
 			cy: model.bb.y,
 			r: model.thickness * 1.2,
 		}),
+		//front hub
 		svg("circle", {
 			cx: model.frontHub.x,
 			cy: model.frontHub.y,
@@ -483,7 +488,6 @@ const updateForFinishingTemplateRename = model => composeUpdateSafe(model)(
 	() => safe(m => m.templates.list.find(x => x.name == model.newTemplateName) === undefined, model)
 )
 
-
 const updateForSavingTemplate = model => composeUpdateSafe(model)(
 	map(() => setPath(["templates", "status"], "busy", model)),
 	map(x => x.fork(
@@ -525,11 +529,15 @@ const createTabButtons = (tagname, activeTabIndex, {ontabadd, ontabchange}, temp
 	h(tagname, {}, [
 		h("span .realTabs", {},
 			putIndexes(templates)
-				.map(x => h(`span .clickable .button ${x.index == activeTabIndex ? ".active" : ""}`, {
-					style: { color: x.color },
-					title: x.name,
-					onclick: () => ontabchange(x.index),
-				}, `•${x.index}`))
+				.map(x =>
+					h(`span .clickable .button ${x.index == activeTabIndex ? ".active" : ""}`, {
+						title: x.name,
+						onclick: () => ontabchange(x.index),
+					}, [
+						h("span .icon", { style: {color: x.fillColor} }, "♦"),
+						x.index,
+					])
+				)
 		),
 		h("span .clickable .button", {
 			onclick: ontabadd,
@@ -593,6 +601,11 @@ const createInputsTree = model => {
 									path(["target", "value"])
 								),
 							}, [
+								...putIndexes(model.templates.list)
+									.map(x => h("option", {
+										value: x.index,
+										selected: curbike.template == x.index && "selected",
+									}, x.name)),
 								curbike.template == "custom"
 									?  h("option", {
 										value: "custom",
@@ -600,11 +613,6 @@ const createInputsTree = model => {
 										disabled: true,
 									}, "custom")
 									: undefined,
-								...putIndexes(model.templates.list)
-									.map(x => h("option", {
-										value: x.index,
-										selected: curbike.template == x.index && "selected",
-									}, x.name)),
 							]
 						),
 						(curbike.isDirty && curbike.template == "custom")
@@ -875,8 +883,7 @@ const createInputsTree = model => {
 							value: x.formatForHumans(withDefault(0, path(x.path, curbike))),
 							readOnly: x.readonly ? "readonly" : undefined,
 							onfocus: composeUpdate(model)(
-								() => setPath(["guide"], x.guide || [], model),
-								() => null
+								() => setPath(["guide"], x.guide || [], model)
 							),
 							onchange: composeUpdateSafe(model)(
 								map(setPath(["myBikes", model.currentTabIndex, "isDirty"], true)),
@@ -921,21 +928,36 @@ const createInputsTree = model => {
 					model.areExtrasShown ? "hide extras" : "extras"
 				)
 			),
-			h("div .inputContainer .zebra", [
-				h("label", {}, "color"),
-				h("select .clickable",
-					{
-						onchange: composeUpdateSafe(model)(
-							map(setPath2(["myBikes", model.currentTabIndex, "fillColor"], model)),
-							path(["target", "value"])
+			h("div .zebra", [
+				h("div .inputContainer", [
+					h("label", "ghost "),
+					h("input", {
+						type: "checkbox",
+						checked: curbike.hasGhost ? "checked" : undefined,
+						onchange: composeUpdate(model)(
+							() => setPath(["myBikes", model.currentTabIndex, "hasGhost"], !curbike.hasGhost, model)
 						),
-					},
-					Object.keys(COLORS).map(color =>
-						h("option", {
-							value: COLORS[color],
-						}, color)
-					)
-				),
+					}, undefined),
+					h("span.unit", {
+						title: "Show ghost when viewing other tabs. Useful to compare bikes.",
+					}, "?"),
+				]),
+				h("div .inputContainer", [
+					h("label", {}, "color"),
+					h("select .clickable",
+						{
+							onchange: composeUpdateSafe(model)(
+								map(setPath2(["myBikes", model.currentTabIndex, "fillColor"], model)),
+								path(["target", "value"])
+							),
+						},
+						Object.keys(COLORS).map(color =>
+							h("option", {
+								value: COLORS[color],
+							}, color)
+						)
+					),
+				]),
 			]),
 		]),
 
@@ -969,72 +991,91 @@ const createTree = compose(
 	withDefault(hForCrash),
 	map(model => h("div#root .container", [
 		createInputsTree(model),
-		createBicycleSvg(assign({
-			zoom: model.zoom,
-			pan: model.pan,
-			guide: model.guide,
-		}, model.myBikes[model.currentTabIndex])),
+		svg("svg",
+			{
+				viewBox: "0 0 700 400",
+				_keep: {
+					onclick: composeUpdate(model)(
+						() => setPath(["guide"], [], model)
+					),
+				},
+			}, 
+			[
+				...model.myBikes.filter((x, i) => (i != model.currentTabIndex) && x.hasGhost),
+				Object.assign({ isCurBike: true }, model.myBikes.find((_, i) => i == model.currentTabIndex)),
+			]
+				.map(x => Object.assign({
+					zoom: model.zoom,
+					pan: model.pan,
+					guide: x.isCurBike ? model.guide : [],
+					isSlightlyTransparent: !x.isCurBike,
+				}, x))
+				.map(createBicycleSvg)
+		),
 	])),
-	model => changePath(["myBikes", model.currentTabIndex], x => {
-		let bb = Point(model.pan.x, model.pan.y)
+	model => changePath(["myBikes"], bikes =>
+		bikes.map(x => {
+			let bb = Point(model.pan.x, model.pan.y)
 
-		let rearHub = Point.subtract(
-			bb,
-			Point(
-				x.chainstayLen * Math.cos(Math.asin(x.bbDropLen / x.chainstayLen)),
-				x.bbDropLen
+			let rearHub = Point.subtract(
+				bb,
+				Point(
+					x.chainstayLen * Math.cos(Math.asin(x.bbDropLen / x.chainstayLen)),
+					x.bbDropLen
+				)
 			)
-		)
-		let frontHub = Point.add(rearHub, Point(x.wheelbaseLen, 0))
+			let frontHub = Point.add(rearHub, Point(x.wheelbaseLen, 0))
 
-		let headTubeEnd = Point.add(bb, Point(x.reachLen, -x.stackLen))
-		let headTubeStart = Point.add(headTubeEnd, Vector(x.headTubeLen, x.headTubeAngle + Math.PI))
+			let headTubeEnd = Point.add(bb, Point(x.reachLen, -x.stackLen))
+			let headTubeStart = Point.add(headTubeEnd, Vector(x.headTubeLen, x.headTubeAngle + Math.PI))
 
-		let seatTubeEnd = Point.add(bb, Vector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle))
+			let seatTubeEnd = Point.add(bb, Vector(x.seatTubeLen + x.seatTubeExtra, x.seatTubeAngle))
 
-		let forkOffsetV = Point.subtract(
-			projectionOnLineFromPoint(headTubeStart, headTubeEnd, frontHub),
-			frontHub
-		)
-		let forkOffset = Point.len(forkOffsetV)
-			* ((Point.cross(forkOffsetV, Point.subtract(headTubeStart, frontHub))) >= 0
-				? 1
-				: -1
+			let forkOffsetV = Point.subtract(
+				projectionOnLineFromPoint(headTubeStart, headTubeEnd, frontHub),
+				frontHub
 			)
-		let forkStart = intersectionsOfLineAndCircle(headTubeEnd, headTubeStart, frontHub, x.forkLen)[1] //TODO don't hardcode 1
+			let forkOffset = Point.len(forkOffsetV)
+				* ((Point.cross(forkOffsetV, Point.subtract(headTubeStart, frontHub))) >= 0
+					? 1
+					: -1
+				)
+			let forkStart = intersectionsOfLineAndCircle(headTubeEnd, headTubeStart, frontHub, x.forkLen)[1] //TODO don't hardcode 1
 
-		let topTubeEnd = Point.add(bb, Vector(x.seatTubeLen, x.seatTubeAngle))
-		let topTubeStart = intersectionsOfLineAndCircle(headTubeEnd, headTubeStart, topTubeEnd, x.topTubeLen)[0] //TODO don't hardcode 0
+			let topTubeEnd = Point.add(bb, Vector(x.seatTubeLen, x.seatTubeAngle))
+			let topTubeStart = intersectionsOfLineAndCircle(headTubeEnd, headTubeStart, topTubeEnd, x.topTubeLen)[0] //TODO don't hardcode 0
 
-		let bottomTubeOffset = x.headTubeLen * 0.7
-		let bottomTubeStart = Point.add(headTubeStart, Vector(x.headTubeLen - bottomTubeOffset, x.headTubeAngle))
+			let bottomTubeOffset = x.headTubeLen * 0.7
+			let bottomTubeStart = Point.add(headTubeStart, Vector(x.headTubeLen - bottomTubeOffset, x.headTubeAngle))
 
-		let crownHeight = Point.len(Point.subtract(forkStart, headTubeStart))
+			let crownHeight = Point.len(Point.subtract(forkStart, headTubeStart))
 
-		let headTubeProjection= Point(
-			headTubeEnd.x + ((frontHub.y - headTubeEnd.y) / Math.tan(x.headTubeAngle)),
-			frontHub.y
-		)
+			let headTubeProjection= Point(
+				headTubeEnd.x + ((frontHub.y - headTubeEnd.y) / Math.tan(x.headTubeAngle)),
+				frontHub.y
+			)
 
-		return assign({
-			bb,
-			rearHub,
-			frontHub,
-			headTubeStart,
-			headTubeEnd,
-			topTubeStart,
-			topTubeEnd,
-			seatTubeEnd,
-			bottomTubeStart,
-			headTubeProjection,
-			forkStart,
-			forkOffset,
-			crownHeight,
-			errors: {
-				topTubeLen: Point.isNaN(topTubeStart) && "too short",
-			},
-		}, x)
-	}, model)
+			return assign({
+				bb,
+				rearHub,
+				frontHub,
+				headTubeStart,
+				headTubeEnd,
+				topTubeStart,
+				topTubeEnd,
+				seatTubeEnd,
+				bottomTubeStart,
+				headTubeProjection,
+				forkStart,
+				forkOffset,
+				crownHeight,
+				errors: {
+					topTubeLen: Point.isNaN(topTubeStart) && "too short",
+				},
+			}, x)
+		}),
+		model
+	)
 )
 
 /*
@@ -1092,6 +1133,25 @@ compose(
 		fillColor: COLORS.black,
 		template: "custom",
 		isDirty: false,
+	}, {
+		bbDropLen: 75,
+		chainstayLen: 400,
+		forkLen: 378,
+		forkOffset: 45,
+		headTubeLen: 150,
+		headTubeAngle: Math.PI + toRadians(+73),
+		topTubeLen: 550,
+		seatTubeLen: 550,
+		seatTubeExtra: 20,
+		seatTubeAngle: Math.PI + toRadians(+73),
+		wheelbaseLen: 972.5,
+		stackLen: 554,
+		reachLen: 380,
+		thickness: 14,
+		fillColor: COLORS.blue,
+		template: "custom",
+		isDirty: false,
+		hasGhost: true,
 	}],
 	templates: {
 		status: "busy",
