@@ -15,7 +15,7 @@
 	[o] add new tabs
 	[o] switch between tabs
 	[o] close tabs
-	[ ] show ghosts
+	[o] show ghosts
 [o] use top-tube length and not headTubeOffset
 [o] improve guide definitions
 [o] FIX bug when user saves a bike the templates-list is broken

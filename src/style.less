@@ -64,6 +64,11 @@ body {
 					cursor: default;
 				}
 			}
+
+			.icon {
+				overflow: hidden;
+				text-shadow: -1px 0 white, 0 1px white, 1px 0 white, 0 -1px white;
+			}
 		}
 	}
 
@@ -123,6 +128,11 @@ body {
 		&[type="number"] {
 			text-align: right;
 		}
+
+		&[type="checkbox"] {
+			margin-left: 1em;
+			margin-right: 0.5em;
+		}
 	}
 
 	.unit {
@@ -153,7 +163,7 @@ body {
 	}
 }
 
-input {
+input[type="number"] {
 	-moz-appearance: textfield;
 	border-color: transparent transparent @fgColor3;
 }
