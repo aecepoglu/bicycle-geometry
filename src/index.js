@@ -240,13 +240,12 @@ const svgpath = curry((style, d) => svg("path", ({
 })))
 
 // buildPath :: LineDef -> String
-const buildPath = compose(
-	withDefault(undefined),
-	map(spaced),
-	merge(liftA2(cons)),
-	bimap(map(svgdp("M")), map(map(svgdp("L")))),
-	fanout(head, tail)
-)
+const buildPath = linedef =>
+	fanout(head, tail, linedef)
+	|> bimap(map(svgdp("M")), map(map(svgdp("L"))))
+	|> merge(liftA2(cons))
+	|> map(spaced)
+	|> withDefault(undefined)
 
 const buildPathWithStyle = ({style, list}) => svgpath(style, buildPath(list))
 
@@ -268,16 +267,15 @@ const svgTrapezoid = (p0, p1, w1, w2) => {
 }
 
 // drawGuide :: Model -> [Model -> [Point]] -> Svg.g
-const drawGuide = model => compose(
-	x => svg("g", {
-		stroke: model.fillColor != COLORS.red ? "red" : COLORS.black,
-		fill: "none",
-	}, x),
-	map(buildPathWithStyle),
-	map(mapProps({
+const drawGuide = model => flist =>
+	flist.map(mapProps({
 		list: f => f(model),
 	}))
-)
+		.map(buildPathWithStyle)
+		|> (x => svg("g", {
+			stroke: model.fillColor != COLORS.red ? "red" : COLORS.black,
+			fill: "none",
+		}, x))
 
 const guide = (style, list) => ({style, list})
 
@@ -405,16 +403,11 @@ const createBicycleSvg = compose(
 )
 
 // updateModelAndRender :: Model -> Model -> IO something
-const updateModelAndRender = oldmodel => compose(
-	//IO something /*TODO what is something?*/
-	chain(domPatch("#root")),
-	//IO Diff
-	map(d => domDiff(createTree(oldmodel))(d)), //not preloading to avoid infinite loop
-	//IO VTree
-	map(createTree),
-	//IO Model
-	setModel
-)
+const updateModelAndRender = oldM => newM =>
+	setModel(newM)
+		.map(createTree)
+		.map(d => domDiff(createTree(oldM))(d)) //not preloading to avoid infinite loop
+		.chain(domPatch("#root"))
 
 // composeUpdate :: (Model, *Function) -> IO Function
 const composeUpdateSafe = model => (...fs) => compose(
@@ -480,10 +473,10 @@ const updateForFinishingTemplateRename = model => composeUpdateSafe(model)(
 		...tpls,
 		tpl,
 	], model)),
-	map(bike => compose(
-		assign({name: bike.newTemplateName}),
-		bikeToTemplate
-	)(bike)),
+	map(bike => ({
+		...bikeToTemplate(bike),
+		name: bike.newTemplateName,
+	})),
 	chain(path(["myBikes", model.currentTabIndex])),
 	() => safe(m => m.templates.list.find(x => x.name == model.newTemplateName) === undefined, model)
 )
@@ -560,10 +553,7 @@ const createInputsTree = model => {
 				model.myBikes.length > 1
 					? h("span .NEcorner .clickable .button", {
 						title: "remove bike",
-						onclick: compose(
-							updateForRemovingTabs(model),
-							() => model.currentTabIndex
-						),
+						onclick: () => updateForRemovingTabs(model) (model.currentTabIndex),
 					}, "✕")
 					: undefined,
 
@@ -595,11 +585,10 @@ const createInputsTree = model => {
 						h("select .clickable .button",
 							{
 								disabled: model.templates.status == "busy",
-								onchange: compose(
-									chain(updateForChangingTemplates(model)),
-									chain(parseFloatSafe),
-									path(["target", "value"])
-								),
+								onchange: e =>
+									e.target.value
+									|> parseFloatSafe
+									|> chain(updateForChangingTemplates(model)),
 							}, [
 								...putIndexes(model.templates.list)
 									.map(x => h("option", {
@@ -679,15 +668,13 @@ const createInputsTree = model => {
 				{
 					path: ["headTubeAngle"],
 					label: "head tube angle",
-					formatForHumans: compose(
-						round,
-						toDegrees,
-						add(-Math.PI)
-					),
-					formatForCalculations: compose(
-						add(Math.PI),
-						toRadians
-					),
+					formatForHumans: _ =>
+						(_ - Math.PI)
+						|> toDegrees
+						|> round,
+					formatForCalculations: _ =>
+						toRadians(_)
+						|> add(Math.PI),
 					guide: [
 						guide("straight", guideBetweenPoints([
 							x => x.rearHub,
@@ -713,15 +700,12 @@ const createInputsTree = model => {
 				{
 					path: ["seatTubeAngle"],
 					label: "seat tube angle",
-					formatForHumans: compose(
-						round,
-						toDegrees,
-						add(-Math.PI)
-					),
-					formatForCalculations: compose(
-						add(Math.PI),
-						toRadians
-					),
+					formatForHumans: _ =>
+						(_ - Math.PI)
+						|> toDegrees
+						|> round,
+					formatForCalculations: _ =>
+						toRadians(_) + Math.PI,
 					guide: [
 						guide("straight", guideBetweenPoints([
 							x => x.seatTubeEnd,
