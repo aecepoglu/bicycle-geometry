@@ -20,7 +20,6 @@ module.exports = {
 					loader: "babel-loader",
 					options: {
 						plugins: [
-							["module:param.macro/plugin"],
 							["@babel/plugin-proposal-pipeline-operator", {proposal: "minimal"}],
 							["@babel/plugin-proposal-object-rest-spread"],
 						]

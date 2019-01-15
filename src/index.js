@@ -8,28 +8,18 @@ import IO from "crocks/IO"
 import Maybe from "crocks/Maybe"
 // Helpers
 import assign from "crocks/helpers/assign"
-import branch from "crocks/Pair/branch"
-import bimap from "crocks/pointfree/bimap"
 import chain from "crocks/pointfree/chain"
-import compose from "crocks/helpers/compose"
-import cons from "crocks/pointfree/cons"
+//import compose from "crocks/helpers/compose"
 import curry from "crocks/helpers/curry"
 import identity from "crocks/combinators/identity"
-import fanout from "crocks/helpers/fanout"
-import head from "crocks/pointfree/head"
-import liftA2 from "crocks/helpers/liftA2"
 import map from "crocks/pointfree/map"
 import mapProps from "crocks/helpers/mapProps"
-import merge from "crocks/pointfree/merge"
-import objOf from "crocks/helpers/objOf"
 import omit from "crocks/helpers/omit"
 import path from "crocks/Maybe/propPath"
 import pick from "crocks/helpers/pick"
-import propEq from "crocks/predicates/propEq"
 import run from "crocks/pointfree/run"
 import safe from "crocks/Maybe/safe"
 import setPath from "crocks/helpers/setPath"
-import tail from "crocks/pointfree/tail"
 import tap from "crocks/helpers/tap"
 import withDefault from "crocks/pointfree/option"
 
@@ -156,17 +146,11 @@ const putIndexes = list =>
 	list.map((x, i) => assign({index: i}, x))
 
 // changePath :: [String|Number] -> (a -> b) -> Object -> Maybe Object
-const changePath = curry((dest, f, O) =>compose(
-	map(setPath2(dest, O)),
-	map(f),
-	path(dest)
-)(O))
-
-// removeFromArray :: (Number, [a]) -> [a]
-const removeFromArray = curry((pos, array) => [
-	...array.slice(0, pos),
-	...array.slice(pos + 1),
-])
+const changePath = curry((dest, f, O) =>
+	path(dest, O)
+		.map(f)
+		.map(_ => setPath(dest, _, O))
+)
 
 /*
  * Other Operations */
@@ -211,20 +195,18 @@ const bikeToTemplate = pick(TEMPLATE_FIELDS)
 const templateToBike = pick(["fillColor", ...TEMPLATE_FIELDS])
 
 // rawTemplateToTemplate :: RawTemplate -> Template
-const rawTemplateToTemplate = compose(
-	assign({
-		fillColor: COLORS.black,
-	}),
-	mapProps({
-		headTubeAngle: compose(add(Math.PI), toRadians),
-		seatTubeAngle: compose(add(Math.PI), toRadians),
-	})
-)
+const rawTemplateToTemplate = rt => ({
+	...rt,
+	headTubeAngle: toRadians(rt.headTubeAngle) + Math.PI,
+	seatTubeAngle: toRadians(rt.seatTubeAngle) + Math.PI,
+	fillColor: COLORS.black,
+})
 
 // templateToRawTemplate :: Template -> RawTemplate
-const templateToRawTemplate  = mapProps({
-	headTubeAngle: compose(toDegrees, add(-Math.PI)),
-	seatTubeAngle: compose(toDegrees, add(-Math.PI)),
+const templateToRawTemplate  = t => ({
+	...t,
+	headTubeAngle: toDegrees(t.headTubeAngle) - Math.PI,
+	seatTubeAngle: toDegrees(t.seatTubeAngle) - Math.PI,
 })
 
 /*
@@ -240,12 +222,13 @@ const svgpath = curry((style, d) => svg("path", ({
 })))
 
 // buildPath :: LineDef -> String
-const buildPath = linedef =>
-	fanout(head, tail, linedef)
-	|> bimap(map(svgdp("M")), map(map(svgdp("L"))))
-	|> merge(liftA2(cons))
-	|> map(spaced)
-	|> withDefault(undefined)
+const buildPath = ([head, ...rest]) =>
+	spaced([
+		svgdp("M") (head),
+		...rest.map(
+			svgdp("L")
+		),
+	])
 
 const buildPathWithStyle = ({style, list}) => svgpath(style, buildPath(list))
 
@@ -293,95 +276,13 @@ const projectionOnLineFromPoint = (l1, l2, p) => {
 }
 
 // render :: Model -> VTree
-const createBicycleSvg = compose(
-	model => svg("g", {
-		_keep: {
-			style: {
-				fill: model.fillColor,
-				"fill-opacity": model.isSlightlyTransparent ? 0.5 : undefined,
-			},
-		},
-	}, [
-		// top tube
-		svgTrapezoid(model.topTubeEnd, model.topTubeStart, model.thickness),
-		// bottom tube
-		svgTrapezoid(model.bb, model.bottomTubeStart, model.thickness),
-		// seat tube
-		svgTrapezoid(model.bb, model.seatTubeEnd, model.thickness),
-		// chainstay
-		svgTrapezoid(model.bb, model.rearHub, 1 * model.thickness, 0.5 * model.thickness),
-		// head tube
-		svgTrapezoid(model.headTubeStart, model.headTubeEnd, 1.2 * model.thickness),
-		// seat stay
-		svgTrapezoid(model.rearHub, model.topTubeEnd, 0.6 * model.thickness, 0.6 * model.thickness),
-		// fork crown
-		svgTrapezoid(model.headTubeStart, model.forkStart, 1.2 * model.thickness + 2),
-		//bottom bracket
-		svg("circle", {
-			cx: model.bb.x,
-			cy: model.bb.y,
-			r: model.thickness * 1.2,
-		}),
-		//front hub
-		svg("circle", {
-			cx: model.frontHub.x,
-			cy: model.frontHub.y,
-			r: 2,
-			fill: ALT_COLOR,
-		}),
-		svg("circle", {
-			cx: model.rearHub.x,
-			cy: model.rearHub.y,
-			r: 2,
-			fill: ALT_COLOR,
-		}),
-		svg("path", {
-			d: spaced([ //fork
-				svgdp("M")(model.frontHub),
-				svgdp("Q ")(model.headTubeProjection),
-				svgdp(" ")(model.forkStart),
-			]),
-			stroke: model.fillColor,
-			fill: "none",
-			"stroke-width": "2",
-			"stroke-dasharray": "5, 3",
-		}),
-		svg("circle", {
-			cx: model.headTubeProjection.x,
-			cy: model.headTubeProjection.y,
-			fill: "none",
-		}),
-		svg("circle", {
-			cx: model.topTubeStart.x,
-			cy: model.topTubeStart.y,
-			r: 1,
-			fill: ALT_COLOR,
-		}),
-		svg("circle", {
-			cx: model.bottomTubeStart.x,
-			cy: model.bottomTubeStart.y,
-			r: 1,
-			fill: ALT_COLOR,
-		}),
-		svg("circle", {
-			cx: model.topTubeEnd.x,
-			cy: model.topTubeEnd.y,
-			r: 1,
-			fill: ALT_COLOR,
-		}),
-		svg("circle", {
-			cx: model.pan.x,
-			cy: model.pan.y,
-			r: 4,
-			fill: ALT_COLOR,
-		}),
-		drawGuide(model)(model.guide),
-	]),
-	model => {
+const createBicycleSvg = model =>
+	model
+	|> (model => {
 		let zoom = multiply(model.zoom)
 		let panzoom = {
-			x: compose(round, add(model.pan.x), zoom),
-			y: compose(round, add(model.pan.y), zoom),
+			x: _ => zoom(_) |> add(model.pan.x) |> round,
+			y: _ => zoom(_) |> add(model.pan.y) |> round,
 		}
 
 		return mapProps({
@@ -399,8 +300,92 @@ const createBicycleSvg = compose(
 			seatTubeEnd: panzoom,
 			bb: panzoom,
 		}, model)
-	}
-)
+	})
+	|> (model =>
+		svg("g", {
+			_keep: {
+				style: {
+					fill: model.fillColor,
+					"fill-opacity": model.isSlightlyTransparent ? 0.5 : undefined,
+				},
+			},
+		}, [
+			// top tube
+			svgTrapezoid(model.topTubeEnd, model.topTubeStart, model.thickness),
+			// bottom tube
+			svgTrapezoid(model.bb, model.bottomTubeStart, model.thickness),
+			// seat tube
+			svgTrapezoid(model.bb, model.seatTubeEnd, model.thickness),
+			// chainstay
+			svgTrapezoid(model.bb, model.rearHub, 1 * model.thickness, 0.5 * model.thickness),
+			// head tube
+			svgTrapezoid(model.headTubeStart, model.headTubeEnd, 1.2 * model.thickness),
+			// seat stay
+			svgTrapezoid(model.rearHub, model.topTubeEnd, 0.6 * model.thickness, 0.6 * model.thickness),
+			// fork crown
+			svgTrapezoid(model.headTubeStart, model.forkStart, 1.2 * model.thickness + 2),
+			//bottom bracket
+			svg("circle", {
+				cx: model.bb.x,
+				cy: model.bb.y,
+				r: model.thickness * 1.2,
+			}),
+			//front hub
+			svg("circle", {
+				cx: model.frontHub.x,
+				cy: model.frontHub.y,
+				r: 2,
+				fill: ALT_COLOR,
+			}),
+			svg("circle", {
+				cx: model.rearHub.x,
+				cy: model.rearHub.y,
+				r: 2,
+				fill: ALT_COLOR,
+			}),
+			svg("path", {
+				d: spaced([ //fork
+					svgdp("M")(model.frontHub),
+					svgdp("Q ")(model.headTubeProjection),
+					svgdp(" ")(model.forkStart),
+				]),
+				stroke: model.fillColor,
+				fill: "none",
+				"stroke-width": "2",
+				"stroke-dasharray": "5, 3",
+			}),
+			svg("circle", {
+				cx: model.headTubeProjection.x,
+				cy: model.headTubeProjection.y,
+				fill: "none",
+			}),
+			svg("circle", {
+				cx: model.topTubeStart.x,
+				cy: model.topTubeStart.y,
+				r: 1,
+				fill: ALT_COLOR,
+			}),
+			svg("circle", {
+				cx: model.bottomTubeStart.x,
+				cy: model.bottomTubeStart.y,
+				r: 1,
+				fill: ALT_COLOR,
+			}),
+			svg("circle", {
+				cx: model.topTubeEnd.x,
+				cy: model.topTubeEnd.y,
+				r: 1,
+				fill: ALT_COLOR,
+			}),
+			svg("circle", {
+				cx: model.pan.x,
+				cy: model.pan.y,
+				r: 4,
+				fill: ALT_COLOR,
+			}),
+			drawGuide(model)(model.guide),
+		])
+	)
 
 // updateModelAndRender :: Model -> Model -> IO something
 const updateModelAndRender = oldM => newM =>
@@ -410,11 +395,12 @@ const updateModelAndRender = oldM => newM =>
 		.chain(domPatch("#root"))
 
 // composeUpdate :: (Model, *Function) -> IO Function
-const composeUpdateSafe = model => (...fs) => compose(
-	map(run),
-	map(updateModelAndRender(model)),
-	...fs
-)
+const composeUpdateSafe = model => (...fs) => _ =>
+	fs.reverse()
+		.reduce((x, f) => f(x), _)
+		.map(updateModelAndRender(model))
+		.map(run)
+
 const composeUpdate = model => (...fs) =>
 	composeUpdateSafe(model)(Maybe.Just, ...fs)
 
@@ -438,11 +424,17 @@ const updateForChangingTabs = model => composeUpdate(model)(
 // updateForRemovingTabs :: Model -> Number -> Model
 const updateForRemovingTabs = model => composeUpdateSafe(model)(
 	map(setPath(["currentTabIndex"], 0)),
-	map(setPath2(["myBikes"], model)),
-	merge(liftA2(removeFromArray)),
-	map(() => path(["myBikes"], model)),
-	branch,
-	safe(x => x < model.myBikes.length)
+	map(i =>
+		changePath(
+			["myBikes"],
+			_ => [
+				..._.slice(0, i),
+				..._.slice(i + 1),
+			],
+			model
+		)
+	),
+	safe(_ => _ < model.myBikes.length)
 )
 
 // updateForChangingTemplates :: Model -> Number -> Model
@@ -489,7 +481,7 @@ const updateForSavingTemplate = model => composeUpdateSafe(model)(
 	)),
 	map(map(tpl => {
 		let model_ = getModel()
-		let i = model_.templates.list.findIndex(propEq("name", tpl.name))
+		let i = model_.templates.list.findIndex(_ => _.name == tpl.name)
 
 		return ((i >= 0)
 			?  Maybe.Just(
@@ -567,8 +559,7 @@ const createInputsTree = model => {
 								this.select(); //ughhh... :/
 							},
 							onchange: composeUpdateSafe(model)(
-								map(setPath2(["myBikes", model.currentTabIndex, "newTemplateName"], model)),
-								path(["target", "value"])
+								_ => setPath(["myBikes", model.currentTabIndex, "newTemplateName"], _.target.value, model),
 							),
 						}),
 						h("span .clickable .button", {
@@ -576,8 +567,7 @@ const createInputsTree = model => {
 						}, "✓"),
 						h("span .clickable .button", {
 							onclick: composeUpdate(model)(
-								setPath2(["myBikes", model.currentTabIndex, "isInEdit"], model),
-								() => false
+								() => setPath(["myBikes", model.currentTabIndex, "isInEdit"], false, model),
 							),
 						}, "✕"),
 					]
@@ -874,8 +864,8 @@ const createInputsTree = model => {
 								map(setPath(["myBikes", model.currentTabIndex, "template"], "custom")),
 								map(setPath2(["myBikes", model.currentTabIndex, ...x.path], model)),
 								map(x.formatForCalculations),
-								chain(parseFloatSafe),
-								path(["target", "value"])
+								map(parseFloatSafe),
+								e => e.target.value
 							),
 						}),
 						h("span.unit", {
@@ -902,8 +892,7 @@ const createInputsTree = model => {
 				h("span .clickable",
 					{
 						onclick: composeUpdate(model)(
-							setPath2(["areExtrasShown"], model),
-							() => !model.areExtrasShown
+							() => setPath(["areExtrasShown"], !model.areExtrasShown, model)
 						),
 						style: {
 							"text-decoration": "underline",
@@ -931,8 +920,7 @@ const createInputsTree = model => {
 					h("select .clickable",
 						{
 							onchange: composeUpdateSafe(model)(
-								map(setPath2(["myBikes", model.currentTabIndex, "fillColor"], model)),
-								path(["target", "value"])
+								_ => setPath(["myBikes", model.currentTabIndex, "fillColor"], _.target.value, model),
 							),
 						},
 						Object.keys(COLORS).map(color =>
@@ -971,34 +959,10 @@ const intersectionsOfLineAndCircle = (p1, p2, c, r) => {
 const hForCrash = h("div#root", "FATAL ERROR")
 
 // createTree :: Model -> VTree
-const createTree = compose(
-	withDefault(hForCrash),
-	map(model => h("div#root .container", [
-		createInputsTree(model),
-		svg("svg",
-			{
-				viewBox: "0 0 700 400",
-				_keep: {
-					onclick: composeUpdate(model)(
-						() => setPath(["guide"], [], model)
-					),
-				},
-			}, 
-			[
-				...model.myBikes.filter((x, i) => (i != model.currentTabIndex) && x.hasGhost),
-				Object.assign({ isCurBike: true }, model.myBikes.find((_, i) => i == model.currentTabIndex)),
-			]
-				.map(x => Object.assign({
-					zoom: model.zoom,
-					pan: model.pan,
-					guide: x.isCurBike ? model.guide : [],
-					isSlightlyTransparent: !x.isCurBike,
-				}, x))
-				.map(createBicycleSvg)
-		),
-	])),
-	model => changePath(["myBikes"], bikes =>
-		bikes.map(x => {
+const createTree = model =>
+	changePath(
+		["myBikes"],
+		bikes => bikes.map(x => {
 			let bb = Point(model.pan.x, model.pan.y)
 
 			let rearHub = Point.subtract(
@@ -1060,7 +1024,33 @@ const createTree = compose(
 		}),
 		model
 	)
-)
+	.map(model =>
+		h("div#root .container", [
+			createInputsTree(model),
+			svg("svg",
+				{
+					viewBox: "0 0 700 400",
+					_keep: {
+						onclick: composeUpdate(model)(
+							() => setPath(["guide"], [], model)
+						),
+					},
+				}, 
+				[
+					...model.myBikes.filter((x, i) => (i != model.currentTabIndex) && x.hasGhost),
+					Object.assign({ isCurBike: true }, model.myBikes.find((_, i) => i == model.currentTabIndex)),
+				]
+					.map(x => Object.assign({
+						zoom: model.zoom,
+						pan: model.pan,
+						guide: x.isCurBike ? model.guide : [],
+						isSlightlyTransparent: !x.isCurBike,
+					}, x))
+					.map(createBicycleSvg)
+			),
+		])
+	)
+	.option(hForCrash)
 
 /*
  *
@@ -1068,37 +1058,18 @@ const createTree = compose(
  *
  */
 
-// setTemplates :: (Model, BikeModel) -> ()
-const setTemplates = curry((model, bikes) => compose(
-	updateModelAndRender(model),
-	setPath2(["templates"], model),
-	assign({status: "done"}),
-	objOf("list"),
-	map(rawTemplateToTemplate)
-)(bikes))
+// setTemplates :: (Model, [RawTemplate]) -> ()
+const setTemplates = (model, bikes) =>
+	updateModelAndRender(model)
+		({
+			...model,
+			templates: {
+				list: bikes.map(rawTemplateToTemplate),
+				status: "done",
+			},
+		})
 
-compose(
-	map(run),
-	x => x.toArray(),
-	fanout(
-		compose(
-			x => new IO(() => x.fork(
-				print("ERROR"),
-				() => {}
-			)),
-			map(run),
-			map(y => setTemplates(getModel(), y)), //getModel() explicitly instead of use the piped Model because it may be too old
-			listBikes,
-			() => undefined
-		),
-		compose(
-			chain(x => replaceDomWith("#root", x)),
-			map(vdomCreate),
-			map(createTree)
-		)
-	),
-	setModel
-)({
+setModel({
 	myBikes: [{
 		bbDropLen: 75,
 		chainstayLen: 435,
@@ -1147,5 +1118,20 @@ compose(
 	guide: [],
 	showDirtyConfirmation: true,
 })
+|> (io =>
+	io.map(createTree)
+		.map(vdomCreate)
+		.chain(_ => replaceDomWith("#root", _))
+		.run()
+)
+|> (() =>
+	listBikes()
+		.map(_ => setTemplates(getModel(), _)) //getModel() explicitly instead of use the piped Model because it may be too old
+		.map(run)
+		.fork(
+			print("ERROR"),
+			() => {}
+		)
+)
 
 inspect("inspecting", Maybe.Just(3))
