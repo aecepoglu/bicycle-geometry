@@ -24,7 +24,7 @@ import tap from "crocks/helpers/tap"
 import withDefault from "crocks/pointfree/option"
 
 import SafeModel from "./model"
-import {listBikes, createBike} from "./db"
+import {listBikesMock as listBikes, createBike} from "./db"
 
 import "./style.less"
 
@@ -864,7 +864,7 @@ const createInputsTree = model => {
 								map(setPath(["myBikes", model.currentTabIndex, "template"], "custom")),
 								map(setPath2(["myBikes", model.currentTabIndex, ...x.path], model)),
 								map(x.formatForCalculations),
-								map(parseFloatSafe),
+								parseFloatSafe,
 								e => e.target.value
 							),
 						}),
